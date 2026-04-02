@@ -5,7 +5,7 @@
 
 
 ## 1. 项目定位 (Project Positioning)
-**DBChaos** 是一款专为分布式数据库与云原生数据库设计的韧性测试与故障画像（Fault Profiling）工具。不同于传统的仅通过外部高并发请求模拟负载的工具，DBChaos 深入数据库**内核原语（Kernel Primitives）**层级，通过**内核机制诱导（Kernel Mechanism Induction）**技术，精准触发数据库内部的逻辑边界与性能拐点。
+**DBChaos** 是一款专为分布式数据库与云原生数据库设计的韧性测试与故障画像（Fault Profiling）工具。不同于传统的仅通过外部高并发请求模拟负载的工具，DBChaos 深入数据库**内核原语**层级，通过**内核机制诱导**技术，精准触发数据库内部的逻辑边界与性能拐点。
 
 该工具旨在帮助架构师与 DBA 评估数据库在极端并发、资源挤兑及逻辑异常情况下的**自愈能力（Self-healing）**与**隔离韧性（Isolation Resilience）**。
 
@@ -67,13 +67,3 @@ java -jar DBChaos.jar opengauss plan_flip -threads 16 -duration 300000 -interval
 ## 6. 开发者 (Developer)
 * **Author**: baibh dingr zhengzk wangxr
 * **Project**: resilienceChaos
-
----
-
-### 给简历的建议：
-在简历的“项目经历”中，你可以这样描述：
-> **DBChaos: 数据库内核级韧性故障注入工具 (独立开发者)**
-> * **背景**：针对分布式数据库在生产环境中面临的隐蔽故障（如执行计划退化、长事务锁挤兑），开发了一款基于内核机制诱导的韧性测试工具。
-> * **核心工作**：利用 **PostgreSQL/openGauss 内核原语**，通过动态干预 `autovacuum` 触发阈值及调整内核栈深参数，实现了 `plan_flip`（计划跳变）及 `stack_overflow`（栈溢出）等 8 种高阶故障画像。
-> * **技术栈**：Java, JDBC 泛化处理, 混沌工程方法论, 数据库成本模型分析, Shell 自动化构建。
-> * **成果**：成功模拟了跨 Schema 的“喧闹邻居”效应，为 TPC-C 基准压测提供了量化的韧性评价指标，辅助定位了多处内核级的资源隔离缺陷。
