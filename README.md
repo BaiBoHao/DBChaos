@@ -1,7 +1,7 @@
 # DBChaos: 基于内核原语构造的数据库韧性故障画像工具
 
 
-![](licensed-image.jpg)
+![](./static/licensed-image.jpg)
 
 
 ## 1. 项目定位 (Project Positioning)
