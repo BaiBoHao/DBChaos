@@ -1,4 +1,4 @@
-# DBChaos: 基于内核机制诱导的数据库韧性故障画像工具
+# DBChaos: 基于内核原语构造的数据库韧性故障画像工具
 
 
 ![](licensed-image.jpg)
@@ -65,5 +65,5 @@ java -jar DBChaos.jar opengauss plan_flip -threads 16 -duration 300000 -interval
 ---
 
 ## 6. 开发者 (Developer)
-* **Author**: baibh dingr zhengzk wangxr
+* **Author**: 西北工业大学
 * **Project**: resilienceChaos
