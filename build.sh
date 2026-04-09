@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # 默认 JAR 名称
-DEFAULT_JAR_NAME="resilienceChaos-1.0"
+DEFAULT_JAR_NAME="DBChaos-0.0.1"
 
 # 获取输入参数作为 JAR 名称
 JAR_NAME=${1:-$DEFAULT_JAR_NAME}
