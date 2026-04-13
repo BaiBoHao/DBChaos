@@ -122,14 +122,14 @@ public class Main {
         if (faultType == null) return null;
         String type = faultType.toLowerCase();
         switch (type) {
-            case "plan_flip":         return new chaos.inject.PlanFlipInject(dbType);
-            case "max_conn":          return new chaos.inject.MaxConnectionInject(dbType);
-            case "stack_overflow":    return new chaos.inject.StackOverflowInject(dbType);
-            case "massive_rollback":  return new chaos.inject.MassiveRollbackInject(dbType);
-            case "memory":            return new chaos.inject.MemoryPressureFault(dbType);
-            case "max_prepared":      return new chaos.inject.MaxPreparedInject(dbType);
-            case "uncommitted_txn":   return new chaos.inject.UncommittedTxnInject(dbType);
-            case "duplicate_txn":     return new chaos.inject.DuplicateTxnInject(dbType);
+            // case "plan_flip":         return new chaos.inject.PlanFlipInject(dbType);
+            case "max_connection":    return new chaos.inject.MaxConnectionInject(dbType);
+            // case "stack_overflow":    return new chaos.inject.StackOverflowInject(dbType);
+            // case "massive_rollback":  return new chaos.inject.MassiveRollbackInject(dbType);
+            // case "memory":            return new chaos.inject.MemoryPressureFault(dbType);
+            // case "max_prepared":      return new chaos.inject.MaxPreparedInject(dbType);
+            // case "uncommitted_txn":   return new chaos.inject.UncommittedTxnInject(dbType);
+            // case "duplicate_txn":     return new chaos.inject.DuplicateTxnInject(dbType);
             case "base":
                 return new BaseFaultInject(dbType, "BASE_TEST") {
                     @Override public void execute(String[] args) { this.printHelp(); }
