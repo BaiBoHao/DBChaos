@@ -149,8 +149,10 @@ public class Main {
     private static BaseFaultInject createInjector(String dbType, String faultType) {
         if (faultType == null) return null;
         switch (faultType.toLowerCase()) {
+            // 最大连接相关故障
             case "max_connection": return new chaos.inject.MaxConnectionInject(dbType);
-            // 其他 case 保持一致...
+            // 大量事务回滚
+            case "massive_rollback": return new chaos.inject.MassiveRollbackInject(dbType);
             case "base": return new BaseFaultInject(dbType, "BASE") {
                 @Override public void execute(String[] args) { this.printHelp(); }
             };

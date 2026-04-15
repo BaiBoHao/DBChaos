@@ -44,31 +44,37 @@ public class MassiveRollbackInject extends BaseFaultInject {
 
     @Override
     public void execute(String[] args) throws Exception {
-        int durationSec = 60;
-        int threads = 16;
-        double rollbackRate = 0.7;
-
-        for (int i = 0; i < args.length; i++) {
-            String key = args[i];
-            if (i + 1 < args.length) {
-                String val = args[i + 1];
-                switch (key) {
-                    case "-duration": durationSec = Integer.parseInt(val); i++; break;
-                    case "-threads": threads = Integer.parseInt(val); i++; break;
-                    case "-rate": rollbackRate = Double.parseDouble(val); i++; break;
-                }
-            }
+        // --- [增量修改：契约自检引导] ---
+        if (args.length == 0 || hasArg(args, "-h") || hasArg(args, "--help")) {
+            printHelp();
+            return;
         }
+
+        // 利用基类工具方法获取参数
+        String durationStr = getArg(args, "-duration");
+        String threadsStr = getArg(args, "-threads");
+        String rateStr = getArg(args, "-rate");
+
+        // 核心参数校验
+        if (durationStr == null) {
+            System.err.println("\u001B[31m ✘ 错误：缺失必填参数 -duration (ms)\u001B[0m");
+            printHelp();
+            return;
+        }
+
+        long durationMs = Long.parseLong(durationStr);
+        int threads = (threadsStr != null) ? Integer.parseInt(threadsStr) : 16;
+        double rollbackRate = (rateStr != null) ? Double.parseDouble(rateStr) : 0.7;
+
 
         // 1. 环境探测与初始指标采集
         detectTargetDbName();
         long[] initialStats = getDatabaseTransactionStats();
-        long endTimeMs = System.currentTimeMillis() + (durationSec * 1000L);
 
-        System.out.println("[大规模回滚] 目标库: " + targetDbName + " | 线程: " + threads + " | 预期回滚率: " + (rollbackRate * 100) + "%");
 
+        // long endTimeMs = System.currentTimeMillis() + durationMs;
         // 2. 执行并发负载
-        runRollbackLoad(endTimeMs, threads, rollbackRate);
+        runRollbackLoad(durationMs, threads, rollbackRate);
 
         // 3. 结果汇总
         System.out.println(">>> 注入结束，正在采集最终指标...");
@@ -76,6 +82,18 @@ public class MassiveRollbackInject extends BaseFaultInject {
         long[] finalStats = getDatabaseTransactionStats();
 
         displayReport(initialStats, finalStats);
+    }
+
+    @Override
+    public void printHelp() {
+        System.out.println("\n\u001B[1m故障画像用法: \u001B[33mmassive_rollback\u001B[0m");
+        System.out.println("  该故障用于模拟高频事务回滚，压力点在于 Undo/Redo 日志写入及 Buffer Pool 换页频繁。");
+        System.out.println("\n\u001B[1m参数列表:\u001B[0m");
+        System.out.printf("  %-15s %s\n", "-duration", "必填。故障持续时长 (ms)");
+        System.out.printf("  %-15s %s\n", "-threads", "选填。并发执行事务的线程数 (默认 16)");
+        System.out.printf("  %-15s %s\n", "-rate", "选填。事务回滚概率 [0.0 - 1.0] (默认 0.7)");
+        System.out.println("\n\u001B[1m示例:\u001B[0m");
+        System.out.println("  ... massive_rollback -duration 60000 -threads 32 -rate 0.9");
     }
 
     private void detectTargetDbName() {
@@ -88,22 +106,33 @@ public class MassiveRollbackInject extends BaseFaultInject {
         }
     }
 
-    private void runRollbackLoad(long endTimeMs, int threads, double rollbackRate) {
+    private void runRollbackLoad(long durationMs, int threads, double rollbackRate) {
+        String tableName = "chaos_rollback_heavy";
+        // 建表不进行计时
+        try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
+            System.out.println("创建持久化表 [" + tableName + "]");
+            stmt.execute("DROP TABLE IF EXISTS " + tableName);
+            stmt.execute("CREATE TABLE " + tableName + " (id BIGINT, val FLOAT)");
+        } catch (SQLException e) {
+            System.err.println("环境准备失败: " + e.getMessage());
+            return;
+        }
+
+        // 现在计入结束时间点，确保表准备时间不算在内
+        long endTimeMs = System.currentTimeMillis() + durationMs;
+        System.out.println("[大规模回滚] 目标库: " + targetDbName + " | 线程: " + threads + " | 预期回滚率: " + (rollbackRate * 100) + "%");
+
+
         ExecutorService executor = Executors.newFixedThreadPool(threads);
+        
         for (int i = 0; i < threads; i++) {
             executor.execute(() -> {
                 try (Connection conn = getConnection()) {
-                    // 创建临时表，避免干扰持久化数据
-                    try (Statement stmt = conn.createStatement()) {
-                        stmt.execute("CREATE TEMPORARY TABLE chaos_rollback_load (id BIGINT, val FLOAT)");
-                    }
-
                     conn.setAutoCommit(false);
-                    String insertSql = "INSERT INTO chaos_rollback_load VALUES (?, ?)";
+                    String insertSql = "INSERT INTO " + tableName + " VALUES (?, ?)";
                     try (PreparedStatement ps = conn.prepareStatement(insertSql)) {
-                        long k = 0;
                         while (System.currentTimeMillis() < endTimeMs) {
-                            ps.setLong(1, k++);
+                            ps.setLong(1, System.nanoTime());
                             ps.setDouble(2, Math.random());
                             ps.executeUpdate();
 
@@ -117,7 +146,7 @@ public class MassiveRollbackInject extends BaseFaultInject {
                         }
                     }
                 } catch (SQLException e) {
-                    System.err.println("负载执行异常: " + e.getMessage());
+                    // System.err.println("负载执行异常: " + e.getMessage());
                 }
             });
         }
@@ -125,6 +154,14 @@ public class MassiveRollbackInject extends BaseFaultInject {
         try {
             executor.awaitTermination(1, TimeUnit.HOURS);
         } catch (InterruptedException ignored) {}
+
+        // 清理后置表
+        try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
+            System.out.println("删除持久化表 [chaos_rollback_heavy]");
+            stmt.execute("DROP TABLE IF EXISTS chaos_rollback_heavy");
+        } catch (SQLException e) {
+            System.err.println("环境清理失败: " + e.getMessage());
+        }
     }
 
     /**
