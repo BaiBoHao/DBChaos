@@ -14,9 +14,10 @@ BENCHMARK_RUN_PATH="/home/baibh/benchmarksql-5.0/run"
 PROP_FILE="opengauss.properties"
 
 # 3. 配置故障注入参数
-INJECT_DELAY=3    # 故障注入的时间点(minute)
-FAULT_DURATION=0  # 故障运行的时长(minute)
-FAULT_PARAMS=$1   # 从命令行参数获取故障参数
+INJECT_DELAY=1    # 故障注入的时间点(minute)
+FAULT_DURATION=1  # 故障运行的时长(minute)
+# FAULT_PARAMS=$1   # 从命令行参数获取故障参数
+FAULT_PARAMS="$*"
 
 # 4. 获取故障注入jar
 CHAOS_PROPS="../resources/chaos.properties"
@@ -90,7 +91,7 @@ case "$DB_TYPE" in
         # 3.注入故障
         if [ -n "$FAULT_PARAMS" ]; then
             echo "[INFO] >>> 正在注入故障: $FAULT_PARAMS"
-            java -jar "$JAR_PATH" $FAULT_PARAMS -duration $((FAULT_DURATION * 60 * 1000))
+            java -jar "$JAR_PATH" "$DB_TYPE" $FAULT_PARAMS -duration $((FAULT_DURATION * 60 * 1000))
         else
             echo "[WARN] 未检测到故障参数，仅运行基准压测。"
         fi
