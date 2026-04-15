@@ -20,18 +20,12 @@ public abstract class BaseFaultInject {
     protected String dbType;
     protected String SQLType;
 
-    // 提供覆盖配置的静态变量，允许在运行时通过环境变量或系统属性覆盖默认配置
+    // 可覆盖配置
     public static String overrideUrl = null;
     public static String overrideUser = null;
     public static String overridePassword = null;
 
-    public BaseFaultInject(String dbType, String faultType) {
-        this.dbType = dbType;
-        this.faultType = faultType;
-        this.SQLType = standardizeDbType(dbType);
-        this.loadConfig();
-    }
-
+    
     private String standardizeDbType(String dbType) {
         if (dbType == null) return "unknown";
         
@@ -109,12 +103,27 @@ public abstract class BaseFaultInject {
         return this.SQLType;
     }
 
-    public void printHelp() {
-        System.out.println("=== 故障注入工具基准测试通过 ===");
-        System.out.println("故障类型: " + this.faultType);
-        System.out.println("数据库类型: " + this.dbType);
-        System.out.println("标准化语法类型: " + this.SQLType);
-        System.out.println("状态确认: 配置加载及驱动初始化成功。");
+    protected boolean hasArg(String[] args, String target) {
+        for (String arg : args) {
+            if (target.equalsIgnoreCase(arg)) return true;
+        }
+        return false;
+    }
+
+    protected String getArg(String[] args, String target) {
+        for (int i = 0; i < args.length - 1; i++) {
+            if (target.equalsIgnoreCase(args[i])) return args[i + 1];
+        }
+        return null;
+    }
+
+    public void printHelp() {}
+
+    public BaseFaultInject(String dbType, String faultType) {
+        this.dbType = dbType;
+        this.faultType = faultType;
+        this.SQLType = standardizeDbType(dbType);
+        this.loadConfig();
     }
 
     public abstract void execute(String[] args) throws Exception;

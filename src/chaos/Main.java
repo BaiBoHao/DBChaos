@@ -3,138 +3,166 @@ package chaos;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Properties;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 import chaos.core.BaseFaultInject;
 
 /**
  * DBChaos 项目启动主类。
- * 增加了 ANSI 彩色输出支持，并优化了界面布局以提高阅读性。
+ * 优化了执行流：支持静默执行、参数校验及更美观的 UI 面板。
  */
 public class Main {
     private static Properties appProps = new Properties();
 
-    // ANSI 颜色常量定义
-    private static final String RESET = "\u001B[0m";
-    private static final String CYAN = "\u001B[36m";
-    private static final String GREEN = "\u001B[32m";
+    // 颜色常量
+    private static final String RESET  = "\u001B[0m";
+    private static final String CYAN   = "\u001B[36m";
+    private static final String GREEN  = "\u001B[32m";
     private static final String YELLOW = "\u001B[33m";
-    private static final String RED = "\u001B[31m";
-    private static final String BOLD = "\u001B[1m";
+    private static final String RED    = "\u001B[31m";
+    private static final String BOLD   = "\u001B[1m";
+    private static final String DIM    = "\u001B[2m";
 
     static {
         try (InputStream in = Main.class.getResourceAsStream("/chaos.properties")) {
             if (in != null) {
                 appProps.load(new InputStreamReader(in, StandardCharsets.UTF_8));
             }
-        } catch (Exception ignored) {
-            // 保持静默，失败时使用默认值
-        }
+        } catch (Exception ignored) {}
     }
 
     public static void main(String[] args) {
-        // 展示彩色欢迎界面
-        printWelcomeScreen();
+        String[] loggers = {
+            "org.opengauss",    // openGauss 驱动
+            "org.postgresql",   // PostgreSQL 驱动
+            "com.mysql.cj",     // MySQL 现代驱动 (Connector/J 8.0+)
+            "com.mysql"         // 兼容旧版或通用 MySQL 驱动
+        };
 
-        if (args.length < 2) {
-            printUsage();
+        for (String loggerName : loggers) {
+            Logger logger = Logger.getLogger(loggerName);
+            // 设置为 WARNING，只看报错，不看握手信息
+            logger.setLevel(Level.WARNING);
+        }
+
+        
+        // 1. 帮助触发检查：无参数或包含 -h/--help
+        if (args.length == 0 || isHelpRequested(args)) {
+            showFullHelp();
+            return;
+        }
+
+        // 2. 基础参数解析
+        if (args.length == 1) {
+            System.out.println(YELLOW + BOLD + " ➤ 已选数据库: " + RESET + args[0]);
+            System.out.println(RED + " ✘ 缺失参数: 请指定 [故障画像关键字]" + RESET);
+            System.out.println(DIM + "\n 可用画像列表：" + RESET);
+            printFaultTable();
             return;
         }
 
         String dbType = args[0];
         String faultType = args[1];
 
+        // 3. 全局覆盖参数处理（不干扰故障指令执行）
         parseGlobalOverrides(args);
 
+        // 4. 路由分发
         BaseFaultInject injector = createInjector(dbType, faultType);
 
         if (injector == null) {
-            System.err.println(RED + "错误：未定义的故障画像类型 '" + faultType + "'" + RESET);
-            printUsage();
+            System.err.println(RED + BOLD + " ✘ 错误: 未知的故障画像 [" + faultType + "]" + RESET);
+            printFaultTable();
             return;
         }
 
+        // 5. 执行注入
         try {
             String[] subArgs = new String[args.length - 2];
             System.arraycopy(args, 2, subArgs, 0, args.length - 2);
             injector.execute(subArgs);
         } catch (Exception e) {
-            System.err.println(RED + "故障注入执行失败: " + e.getMessage() + RESET);
+            System.err.println("\n" + RED + BOLD + " ✘ 执行异常: " + RESET + e.getMessage());
         }
     }
 
-    /**
-     * 优化后的彩色欢迎界面
-     */
+    private static boolean isHelpRequested(String[] args) {
+        return Arrays.stream(args).anyMatch(arg -> arg.equals("-h") || arg.equals("--help"));
+    }
+
+    private static void showFullHelp() {
+        printWelcomeScreen();
+        printUsage();
+    }
+
     private static void printWelcomeScreen() {
-        String banner = appProps.getProperty("cli.banner");
-        String name = appProps.getProperty("cli.name", "DBChaos");
+        String banner = appProps.getProperty("cli.banner", "DBChaos");
         String version = appProps.getProperty("cli.version", "1.0.0");
         String author = appProps.getProperty("cli.author", "baibh");
 
-        // 1. 打印青色加粗的 Banner
         System.out.println(CYAN + BOLD + banner + RESET);
-        
-        // 2. 打印描述信息
-        System.out.println("   " + BOLD + appProps.getProperty("cli.description") + RESET);
-        
-        // 3. 打印版本和作者（绿色样式）
-        System.out.println("\n   " + GREEN + name + " v" + version + RESET + 
-                           " | " + appProps.getProperty("cli.license") + 
-                           " | by " + YELLOW + author + RESET);
-        
-        // 4. 分隔线与核心功能
-        System.out.println(CYAN + "--------------------------------------------------------------------------------" + RESET);
-        System.out.println("   " + BOLD + "核心功能：" + RESET + appProps.getProperty("cli.features"));
-        System.out.println(CYAN + "--------------------------------------------------------------------------------" + RESET + "\n");
-    }
-
-    private static void parseGlobalOverrides(String[] args) {
-        for (int i = 0; i < args.length; i++) {
-            if ("-url".equalsIgnoreCase(args[i])) {
-                BaseFaultInject.overrideUrl = args[++i];
-            } else if ("-user".equalsIgnoreCase(args[i])) {
-                BaseFaultInject.overrideUser = args[++i];
-            } else if ("-password".equalsIgnoreCase(args[i])) {
-                BaseFaultInject.overridePassword = args[++i];
-            }
-        }
+        System.out.println(BOLD + " " + appProps.getProperty("cli.description") + RESET);
+        System.out.println(DIM + " Version: " + RESET + GREEN + version + RESET + 
+                           DIM + " | License: " + RESET + "Apache 2.0" + 
+                           DIM + " | Author: " + RESET + YELLOW + author + RESET);
+        System.out.println(CYAN + " " + "=".repeat(78) + RESET);
     }
 
     private static void printUsage() {
         String name = appProps.getProperty("cli.name", "DBChaos");
-        System.out.println(BOLD + "用法提示：" + RESET);
-        System.out.println("   java -jar " + name + ".jar <数据库类型> <故障画像> [扩展参数]");
-        System.out.println("\n" + BOLD + "受支持的故障画像：" + RESET);
-        System.out.println("   " + YELLOW + "plan_flip" + RESET + "         : 执行计划震荡/跳变故障");
-        System.out.println("   " + YELLOW + "max_conn" + RESET + "          : 最大连接数挤兑故障");
-        System.out.println("   " + YELLOW + "stack_overflow" + RESET + "    : 内核函数递归栈溢出故障");
-        System.out.println("   " + YELLOW + "massive_rollback" + RESET + "  : 大规模事务回滚故障");
-        System.out.println("   " + YELLOW + "memory" + RESET + "            : 数据库内存占用故障");
-        System.out.println("   " + YELLOW + "max_prepared" + RESET + "      : 二阶段提交预处理上限故障");
-        System.out.println("   " + YELLOW + "uncommitted_txn" + RESET + "   : 长事务行锁持有故障");
-        System.out.println("   " + YELLOW + "duplicate_txn" + RESET + "     : 热点行并发冲突故障");
-        System.out.println("\n" + BOLD + "启动示例：" + RESET);
-        System.out.println("   java -jar " + name + ".jar opengauss plan_flip -threads 16");
+        System.out.println("\n" + BOLD + "用法 (Usage):" + RESET);
+        System.out.println(YELLOW + "  java -jar " + name + ".jar <DB_TYPE> <FAULT_TYPE> [OPTIONS]" + RESET);
+        
+        System.out.println("\n" + BOLD + "可用画像 (Available Fault Profiles):" + RESET);
+        printFaultTable();
+
+        System.out.println("\n" + BOLD + "通用选项 (Global Overrides):" + RESET);
+        System.out.printf("  %-20s %s\n", "-url <jdbc_url>", "手动覆盖数据库连接地址");
+        System.out.printf("  %-20s %s\n", "-user <username>", "手动覆盖用户名");
+        System.out.printf("  %-20s %s\n", "-password <pwd>", "手动覆盖密码");
+
+        System.out.println("\n" + BOLD + "示例 (Example):" + RESET);
+        System.out.println(CYAN + "  java -jar " + name + ".jar opengauss plan_flip -threads 16" + RESET);
+        System.out.println();
+    }
+
+    private static void printFaultTable() {
+        System.out.printf(DIM + "  %-18s | %s\n" + RESET, "画像关键字 (ID)", "功能描述 (Description)");
+        System.out.println("  " + "-".repeat(60));
+        String[][] faults = {
+            {"plan_flip", "执行计划震荡/跳变故障"},
+            {"max_connection", "数据库最大连接数挤兑 (线程池饱和/连接耗尽)"},
+            {"stack_overflow", "内核函数递归导致栈溢出"},
+            {"massive_rollback", "大规模事务回滚导致的 I/O 压力"},
+            {"memory", "模拟数据库内存溢出或占用过高"},
+            {"uncommitted_txn", "长事务导致的行锁持有故障"},
+            {"duplicate_txn", "热点行高度并发冲突"}
+        };
+        for (String[] f : faults) {
+            System.out.printf("  " + YELLOW + "%-18s" + RESET + " | %s\n", f[0], f[1]);
+        }
     }
 
     private static BaseFaultInject createInjector(String dbType, String faultType) {
         if (faultType == null) return null;
-        String type = faultType.toLowerCase();
-        switch (type) {
-            // case "plan_flip":         return new chaos.inject.PlanFlipInject(dbType);
-            case "max_connection":    return new chaos.inject.MaxConnectionInject(dbType);
-            // case "stack_overflow":    return new chaos.inject.StackOverflowInject(dbType);
-            // case "massive_rollback":  return new chaos.inject.MassiveRollbackInject(dbType);
-            // case "memory":            return new chaos.inject.MemoryPressureFault(dbType);
-            // case "max_prepared":      return new chaos.inject.MaxPreparedInject(dbType);
-            // case "uncommitted_txn":   return new chaos.inject.UncommittedTxnInject(dbType);
-            // case "duplicate_txn":     return new chaos.inject.DuplicateTxnInject(dbType);
-            case "base":
-                return new BaseFaultInject(dbType, "BASE_TEST") {
-                    @Override public void execute(String[] args) { this.printHelp(); }
-                };
+        switch (faultType.toLowerCase()) {
+            case "max_connection": return new chaos.inject.MaxConnectionInject(dbType);
+            // 其他 case 保持一致...
+            case "base": return new BaseFaultInject(dbType, "BASE") {
+                @Override public void execute(String[] args) { this.printHelp(); }
+            };
             default: return null;
+        }
+    }
+
+    private static void parseGlobalOverrides(String[] args) {
+        for (int i = 0; i < args.length; i++) {
+            if ("-url".equalsIgnoreCase(args[i])) BaseFaultInject.overrideUrl = args[++i];
+            else if ("-user".equalsIgnoreCase(args[i])) BaseFaultInject.overrideUser = args[++i];
+            else if ("-password".equalsIgnoreCase(args[i])) BaseFaultInject.overridePassword = args[++i];
         }
     }
 }

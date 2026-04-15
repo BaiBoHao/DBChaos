@@ -53,46 +53,73 @@ public class MaxConnectionInject extends BaseFaultInject {
 
     @Override
     public void execute(String[] args) throws Exception {
-        // 1. 解析参数
-        String mode = "test";
-        long durationMs = 0;
-        int count = 0;
-
-        for (int i = 0; i < args.length; i++) {
-            if ("-mode".equalsIgnoreCase(args[i])) mode = args[++i];
-            else if ("-duration".equalsIgnoreCase(args[i])) durationMs = Long.parseLong(args[++i]);
-            else if ("-count".equalsIgnoreCase(args[i])) count = Integer.parseInt(args[++i]);
-        }
-
-        if (durationMs <= 0) {
-            System.err.println("错误：必须指定有效时长 -duration <ms>");
+        // 参数自检
+        if (args.length == 0 || hasArg(args, "-h") || hasArg(args, "--help")) {
+            printHelp();
             return;
         }
 
-        // 2. 环境探测：获取数据库最大连接数和线程池配置
+        // 获取参数
+        String mode = getArg(args, "-mode");
+        String durationStr = getArg(args, "-duration");
+        String countStr = getArg(args, "-count");
+
+        if (mode == null || durationStr == null) {
+            System.err.println("\u001B[31m ✘ 错误：缺失必填参数 -mode 或 -duration\u001B[0m");
+            printHelp();
+            return;
+        }
+
+        // 参数解析
+        long durationMs;
+        int count;
+        try {
+            durationMs = Long.parseLong(durationStr);
+            count = (countStr != null) ? Integer.parseInt(countStr) : 0;
+        } catch (NumberFormatException e) {
+            System.err.println("\u001B[31m ✘ 错误：-duration 或 -count 格式非法，请输入数字\u001B[0m");
+            return;
+        }
+
+        // 环境探测：获取数据库最大连接数和线程池配置
         detectDatabaseConfig();
         System.out.println("【环境探测】 最大连接数: " + dbMaxConnections + " | 线程池上限: " + dbMaxThreads);
 
-        // 3. 根据模式路由
+        // 根据模式路由
         switch (mode.toLowerCase()) {
             case "thread_saturation":
                 int overflow = (count > 0) ? count : 32;
-                System.out.println(">>> 执行模式: 线程饱和 | 溢出数: " + overflow);
+                System.out.println(">>> 执行模式: 线程饱和 | 溢出数: " + overflow+ " | 时长: " + durationMs + "ms");
                 injectThreadPoolSaturation(overflow, durationMs);
                 break;
             case "conn_exhaustion":
-                int target = (dbMaxConnections > 0) ? dbMaxConnections : 200;
-                System.out.println(">>> 执行模式: 连接耗尽 | 目标连接: " + target);
+                int target = (count > 0) ? count : (dbMaxConnections > 0 ? dbMaxConnections : 200);
+                System.out.println(">>> 执行模式: 连接耗尽 | 目标连接: " + target+ " | 时长: " + durationMs + "ms");
                 injectConnectionExhaustion(target, durationMs);
                 break;
             case "conn_storm":
                 int stormThreads = (count > 0) ? count : (dbMaxConnections > 0 ? dbMaxConnections : 200);
-                System.out.println(">>> 执行模式: 连接风暴 | 并发线程: " + stormThreads);
+                System.out.println(">>> 执行模式: 连接风暴 | 并发线程: " + stormThreads+ " | 时长: " + durationMs + "ms");
                 injectConnectionStorm(stormThreads, durationMs);
                 break;
             default:
-                System.err.println("错误：未知的模式 '" + mode + "'。可选：thread_saturation, conn_exhaustion, conn_storm");
+                System.err.println("\u001B[31m ✘ 错误：未知的模式 '" + mode + "'\u001B[0m");
+                System.out.println(" 可选模式: thread_saturation, conn_exhaustion, conn_storm");
+                break;
         }
+    }
+
+    // 专门为该画像准备的精简说明书
+    @Override
+    public void printHelp() {
+        System.out.println("\n\u001B[1m故障画像用法: \u001B[33mmax_connection\u001B[0m");
+        System.out.println("  该故障用于模拟连接挤兑。");
+        System.out.println("\n\u001B[1m参数列表:\u001B[0m");
+        System.out.printf("  %-15s %s\n", "-mode", "必填。可选：thread_saturation, conn_exhaustion, conn_storm");
+        System.out.printf("  %-15s %s\n", "-duration", "必填。故障持续时长 (ms)");
+        System.out.printf("  %-15s %s\n", "-count", "选填。根据模式不同代表溢出线程数或并发数");
+        System.out.println("\n\u001B[1m示例:\u001B[0m");
+        System.out.println("  ... max_connection -mode conn_storm -count 200 -duration 60000");
     }
 
     private void detectDatabaseConfig() {
