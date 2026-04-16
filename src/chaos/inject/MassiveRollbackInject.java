@@ -14,7 +14,6 @@ import chaos.core.BaseFaultInject;
 
 /**
  * 大规模事务回滚故障注入。
- * 模拟高并发事务下频繁触发回滚的场景，用于观察数据库撤销日志压力及性能抖动。
  */
 public class MassiveRollbackInject extends BaseFaultInject {
 
@@ -24,7 +23,7 @@ public class MassiveRollbackInject extends BaseFaultInject {
     private String dbNameSql = "";
     private String statsSql = "";
     private String targetDbName = "";
-    private String loadTableName = "";
+    private final String tableName = "chaos_rollback_heavy"; // 统一使用该表名
 
     public MassiveRollbackInject(String dbType) {
         super(dbType, "MASSIVE_ROLLBACK");
@@ -38,25 +37,21 @@ public class MassiveRollbackInject extends BaseFaultInject {
             this.statsSql = "SELECT xact_commit, xact_rollback FROM pg_stat_database WHERE datname = ?";
         } else if ("mysql".equals(sqlType)) {
             this.dbNameSql = "SELECT DATABASE()";
-            // MySQL 通过全局状态变量获取 Com_commit 和 Com_rollback
             this.statsSql = "SHOW GLOBAL STATUS WHERE Variable_name IN ('Com_commit', 'Com_rollback')";
         }
     }
 
     @Override
     public void execute(String[] args) throws Exception {
-        // --- [增量修改：契约自检引导] ---
         if (args.length == 0 || hasArg(args, "-h") || hasArg(args, "--help")) {
             printHelp();
             return;
         }
 
-        // 利用基类工具方法获取参数
         String durationStr = getArg(args, "-duration");
         String threadsStr = getArg(args, "-threads");
         String rateStr = getArg(args, "-rate");
 
-        // 核心参数校验
         if (durationStr == null) {
             System.err.println("\u001B[31m ✘ 错误：缺失必填参数 -duration (ms)\u001B[0m");
             printHelp();
@@ -67,26 +62,19 @@ public class MassiveRollbackInject extends BaseFaultInject {
         int threads = (threadsStr != null) ? Integer.parseInt(threadsStr) : 16;
         double rollbackRate = (rateStr != null) ? Double.parseDouble(rateStr) : 0.7;
 
-
-        // 1. 环境探测与初始指标采集
         detectTargetDbName();
-        loadTableName = "chaos_rollback_load_" + (System.currentTimeMillis() / 1000);
-        createPermanentLoadTable();
         long[] initialStats = getDatabaseTransactionStats();
 
-
-        // long endTimeMs = System.currentTimeMillis() + durationMs;
-        // 2. 执行并发负载
-        runRollbackLoad(durationMs, threads, rollbackRate);
-
-            // 3. 结果汇总
+        // 使用 try-finally 确保无论注入是否成功，最后都会尝试清理环境
+        try {
+            runRollbackLoad(durationMs, threads, rollbackRate);
+            
             System.out.println(">>> 注入结束，正在采集最终指标...");
             Thread.sleep(2000);
             long[] finalStats = getDatabaseTransactionStats();
-
             displayReport(initialStats, finalStats);
         } finally {
-            dropPermanentLoadTable();
+            cleanupEnvironment();
         }
     }
 
@@ -113,26 +101,21 @@ public class MassiveRollbackInject extends BaseFaultInject {
     }
 
     private void runRollbackLoad(long durationMs, int threads, double rollbackRate) {
-        String tableName = "chaos_rollback_heavy";
-        // 建表不进行计时
+        // 1. 前置环境准备
         try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
-            System.out.println("创建持久化表 [" + tableName + "]");
+            System.out.println(" ➤ 准备持久化表 [" + tableName + "]");
             stmt.execute("DROP TABLE IF EXISTS " + tableName);
             stmt.execute("CREATE TABLE " + tableName + " (id BIGINT, val FLOAT)");
         } catch (SQLException e) {
-            System.err.println("环境准备失败: " + e.getMessage());
+            System.err.println("✘ 环境准备失败: " + e.getMessage());
             return;
         }
 
-        // 现在计入结束时间点，确保表准备时间不算在内
         long endTimeMs = System.currentTimeMillis() + durationMs;
         System.out.println("[大规模回滚] 目标库: " + targetDbName + " | 线程: " + threads + " | 预期回滚率: " + (rollbackRate * 100) + "%");
 
-
         ExecutorService executor = Executors.newFixedThreadPool(threads);
-        
         for (int i = 0; i < threads; i++) {
-            final int workerId = i;
             executor.execute(() -> {
                 try (Connection conn = getConnection()) {
                     conn.setAutoCommit(false);
@@ -152,8 +135,8 @@ public class MassiveRollbackInject extends BaseFaultInject {
                             }
                         }
                     }
-                } catch (SQLException e) {
-                    // System.err.println("负载执行异常: " + e.getMessage());
+                } catch (SQLException ignored) {
+                    // 注入期间的连接中断通常是预期内的
                 }
             });
         }
@@ -161,24 +144,20 @@ public class MassiveRollbackInject extends BaseFaultInject {
         try {
             executor.awaitTermination(1, TimeUnit.HOURS);
         } catch (InterruptedException ignored) {}
+    }
 
-        // 清理后置表
+    private void cleanupEnvironment() {
         try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
-            System.out.println("删除持久化表 [chaos_rollback_heavy]");
-            stmt.execute("DROP TABLE IF EXISTS chaos_rollback_heavy");
+            System.out.println(" ➤ 清理环境：删除持久化表 [" + tableName + "]");
+            stmt.execute("DROP TABLE IF EXISTS " + tableName);
         } catch (SQLException e) {
-            System.err.println("环境清理失败: " + e.getMessage());
+            System.err.println("✘ 环境清理失败: " + e.getMessage());
         }
     }
 
-    /**
-     * 通用事务指标获取方法
-     * 返回数组: [提交数, 回滚数]
-     */
     private long[] getDatabaseTransactionStats() {
         long[] stats = new long[]{0, 0};
         String sqlType = getStandardDbType();
-        
         try (Connection conn = getConnection()) {
             if ("postgresql".equals(sqlType)) {
                 try (PreparedStatement ps = conn.prepareStatement(statsSql)) {
