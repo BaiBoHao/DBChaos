@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import chaos.core.BaseFaultInject;
 
@@ -16,53 +17,51 @@ import chaos.core.BaseFaultInject;
  * duration 到时统一回滚释放锁。
  */
 public class UncommittedTxnInject extends BaseFaultInject {
+    // ANSI 颜色定义
+    private static final String RESET  = "\u001B[0m";
+    private static final String CYAN   = "\u001B[36m";
+    private static final String YELLOW = "\u001B[33m";
+    private static final String RED    = "\u001B[31m";
+    private static final String BOLD   = "\u001B[1m";
 
     private final List<Connection> activeHolders = new ArrayList<>();
     private static final String IDENTIFIER_PATTERN = "^[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)?$";
 
     public UncommittedTxnInject(String dbType) {
         super(dbType, "UNCOMMITTED_TXN");
-        initSqlTemplates();
-    }
-
-    private void initSqlTemplates() {
-        // 纯加锁模式不需要 SQL 模板初始化，保留方法以保持类结构。
     }
 
     @Override
     public void execute(String[] args) throws Exception {
-        // 1. 使用临时变量进行参数解析
-        int tmpHolders = 1;
-        int tmpDuration = 60;
-        int tmpRows = 5;
-        String tableSpec = "bmsql_stock";
-
-        for (int i = 0; i < args.length; i++) {
-            switch (args[i]) {
-                case "-holders": tmpHolders = Integer.parseInt(args[++i]); break;
-                case "-duration": tmpDuration = Integer.parseInt(args[++i]); break;
-                case "-rows": tmpRows = Integer.parseInt(args[++i]); break;
-                case "-table": tableSpec = args[++i]; break;
-                case "-tables": tableSpec = args[++i]; break;
-                case "-waiters": i++; break;
-                case "-timeout": i++; break;
-            }
+        if (args.length == 0 || hasArg(args, "-h") || hasArg(args, "--help")) {
+            printHelp();
+            return;
         }
 
-        // 2. 【核心修复】定义为 final 变量，确保 Lambda 引用安全
-        final int holders = tmpHolders;
-        final int duration = tmpDuration;
-        final int rows = tmpRows;
+        // 获取参数
+        String durationStr = getArg(args, "-duration");
+        String tableSpec = getArg(args, "-table");
+        if (tableSpec == null) tableSpec = getArg(args, "-tables");
+        
+        String holdersStr = getArg(args, "-holders");
+        String rowsStr = getArg(args, "-rows");
+
+        if (durationStr == null || tableSpec == null) {
+            System.err.println(RED + " ✘ 错误：缺失必填参数 -duration 或 -table" + RESET);
+            printHelp();
+            return;
+        }
+
+        long durationMs = Long.parseLong(durationStr);
+        int holders = (holdersStr != null) ? Integer.parseInt(holdersStr) : 2;
+        int rows = (rowsStr != null) ? Integer.parseInt(rowsStr) : 500;
         final List<String> targetTables = parseAndValidateTableNames(tableSpec);
 
-        if (holders <= 0 || duration <= 0 || rows <= 0) {
-            throw new IllegalArgumentException("-holders/-duration/-rows 必须为正数");
-        }
 
-        System.out.println("[故障信息] 目标业务表: " + String.join(", ", targetTables) + " | 每线程每表锁定行数: " + rows);
-        System.out.println("[配置信息] 持锁线程: " + holders + " | 持续时间: " + duration + "s");
-        System.out.println("[提示] 当前模式为纯加锁，不执行任何 UPDATE/INSERT，也不启动 Waiter 线程。");
-
+        System.out.println(CYAN + " >>> " + RESET + BOLD + "启动长事务注入: " + RESET + YELLOW + "行级锁持有" + RESET);
+        System.out.println("   目标表: " + String.join(", ", targetTables) + " | 锁定行数/线程: " + rows);
+        System.out.println("   持锁线程: " + holders + " | 持续时间: " + durationMs + "ms");
+        
         ExecutorService holderPool = null;
 
         try {
@@ -74,19 +73,29 @@ public class UncommittedTxnInject extends BaseFaultInject {
             }
 
             // 持锁指定时长，到时统一回滚释放锁。
-            Thread.sleep(duration * 1000L);
-            System.out.println("[控制信息] 持锁时间到，开始回滚并释放 Holder 锁...");
-            releaseHolders();
-
-            // 等待 Holder 线程退出。
-            holderPool.shutdown();
-            holderPool.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS);
+            Thread.sleep(durationMs);
+            System.out.println(CYAN + "\n >>> 注入时间到，开始释放所有长事务..." + RESET);
+            
         } finally {
-            if (holderPool != null && !holderPool.isShutdown()) {
-                holderPool.shutdownNow();
-            }
             releaseHolders();
+            if (holderPool != null) {
+                holderPool.shutdownNow();
+                holderPool.awaitTermination(5, TimeUnit.SECONDS);
+            }
         }
+    }
+
+    @Override
+    public void printHelp() {
+        System.out.println("\n" + BOLD + "故障画像用法: " + YELLOW + "uncommitted_txn" + RESET);
+        System.out.println("  模拟业务中未提交的长事务，通过对指定表记录加锁，制造锁冲突，测试系统的并发处理与韧性。");
+        System.out.println("\n" + BOLD + "参数列表:" + RESET);
+        System.out.printf("  %-15s %s\n", "-duration", "必填。故障持有锁的时长 (ms)");
+        System.out.printf("  %-15s %s\n", "-table", "必填。目标业务表，多个表用逗号分隔");
+        System.out.printf("  %-15s %s\n", "-holders", "选填。持锁并发线程数 (默认 2)");
+        System.out.printf("  %-15s %s\n", "-rows", "选填。每个线程在每个表上锁定的行数 (默认 500)");
+        System.out.println("\n" + BOLD + "示例:" + RESET);
+        System.out.println(CYAN + "  ... uncommitted_txn -duration 60000 -table bmsql_stock -holders 2 -rows 500" + RESET);
     }
 
     private void startHolder(List<String> tableNames, int id, int rows) {
@@ -110,27 +119,6 @@ public class UncommittedTxnInject extends BaseFaultInject {
         }
     }
 
-    private List<String> parseAndValidateTableNames(String tableSpec) {
-        if (tableSpec == null || tableSpec.trim().isEmpty()) {
-            throw new IllegalArgumentException("请通过 -table 或 -tables 指定目标业务表");
-        }
-
-        String[] parts = tableSpec.split(",");
-        List<String> tableNames = new ArrayList<>();
-        for (String part : parts) {
-            String tableName = part.trim();
-            if (tableName.isEmpty() || !tableName.matches(IDENTIFIER_PATTERN)) {
-                throw new IllegalArgumentException("非法表名: " + part + "，请使用 schema.table 或 table 格式");
-            }
-            tableNames.add(tableName);
-        }
-
-        if (tableNames.isEmpty()) {
-            throw new IllegalArgumentException("请至少指定一个目标表");
-        }
-        return tableNames;
-    }
-
     private void releaseHolders() {
         synchronized (activeHolders) {
             for (Connection conn : activeHolders) {
@@ -145,4 +133,17 @@ public class UncommittedTxnInject extends BaseFaultInject {
         }
     }
 
+
+    private List<String> parseAndValidateTableNames(String tableSpec) {
+        String[] parts = tableSpec.split(",");
+        List<String> tableNames = new ArrayList<>();
+        for (String part : parts) {
+            String tableName = part.trim();
+            if (tableName.isEmpty() || !tableName.matches(IDENTIFIER_PATTERN)) {
+                throw new IllegalArgumentException("非法表名: " + part + "，请使用 schema.table 或 table 格式");
+            }
+            tableNames.add(tableName);
+        }
+        return tableNames;
+    }
 }

@@ -171,7 +171,7 @@ public class Main {
             {"max_connection", "数据库最大连接数 (线程池饱和/连接耗尽)"},
             {"stack_overflow", "递归导致栈溢出"},
             {"massive_rollback", "大规模事务回滚"},
-            {"memory", "数据库内存溢出或占用过高"},
+            {"memory_pressure", "数据库内存溢出或占用过高"},
             {"uncommitted_txn", "长事务导致的行锁持有故障"},
             {"duplicate_txn", "热点行高度并发冲突"}
         };
@@ -191,6 +191,10 @@ public class Main {
             case "plan_flip": return new chaos.inject.PlanFlipInject(dbType);
             // 爆栈
             case "stack_overflow": return new chaos.inject.StackOverflowInject(dbType);
+            // 内存相关
+            case "memory_pressure": return new chaos.inject.MemoryPressureFault(dbType);
+            // 事务不提交
+            case "uncommitted_txn": return new chaos.inject.UncommittedTxnInject(dbType);
             case "base": return new BaseFaultInject(dbType, "BASE") {
                 @Override public void execute(String[] args) { this.printHelp(); }
             };

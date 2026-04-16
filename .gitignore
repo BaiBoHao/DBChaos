@@ -7,6 +7,9 @@ demo/temp_run.properties
 # 忽略 Maven/编译产生的构建目标文件夹
 target/
 
+# 忽略 lib
+lib/
+
 # (可选) 如果你以后用到了 IDE，建议也加上这些
 .idea/
 *.class

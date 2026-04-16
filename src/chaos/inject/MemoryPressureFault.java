@@ -1,6 +1,5 @@
 package chaos.inject;
 
-import chaos.core.BaseFaultInject;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
@@ -9,7 +8,16 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
+import chaos.core.BaseFaultInject;
+
 public class MemoryPressureFault extends BaseFaultInject {
+    private static final String RESET  = "\u001B[0m";
+    private static final String CYAN   = "\u001B[36m";
+    private static final String YELLOW = "\u001B[33m";
+    private static final String RED    = "\u001B[31m";
+    private static final String BOLD   = "\u001B[1m";
+
+    private final String tableName = "chaos_memory_stress";
 
     public MemoryPressureFault(String dbType) {
         super(dbType, "memory");
@@ -17,63 +25,104 @@ public class MemoryPressureFault extends BaseFaultInject {
 
     @Override
     public void execute(String[] args) throws Exception {
-        int targetMemMB = 1024; // 默认 1GB 目标 (仅作为参考，Java 端较难监控 DB 进程 RSS)
-        int batchSizeMB = 100;
-        int concurrency = 4;
-
-        if (args.length > 0) targetMemMB = Integer.parseInt(args[0]);
-        if (args.length > 1) batchSizeMB = Integer.parseInt(args[1]);
-        if (args.length > 2) concurrency = Integer.parseInt(args[2]);
-
-        final int finalBatchSizeMB = batchSizeMB;
-        final int finalConcurrency = concurrency;
-
-        System.out.println(">>> 开始数据库内存占用模拟: 目标=" + targetMemMB + "MB, 批大小=" + batchSizeMB + "MB, 并发=" + concurrency);
-
-        try (Connection conn = getConnection();
-             Statement stmt = conn.createStatement()) {
-            
-            String sqlType = getStandardDbType();
-            if ("postgresql".equals(sqlType)) {
-                stmt.execute("DROP TABLE IF EXISTS memory_test;");
-                stmt.execute("CREATE TABLE memory_test(id SERIAL, val BYTEA);");
-            } else if ("mysql".equals(sqlType)) {
-                stmt.execute("DROP TABLE IF EXISTS memory_test;");
-                stmt.execute("CREATE TABLE memory_test(id INT AUTO_INCREMENT PRIMARY KEY, val LONGBLOB);");
-            } else {
-                stmt.execute("DROP TABLE IF EXISTS memory_test;");
-                stmt.execute("CREATE TABLE memory_test(id INT PRIMARY KEY, val BLOB);");
-            }
+        if (args.length == 0 || hasArg(args, "-h") || hasArg(args, "--help")) {
+            printHelp();
+            return;
         }
 
-        ExecutorService executor = Executors.newFixedThreadPool(finalConcurrency);
-        byte[] data = new byte[finalBatchSizeMB * 1024 * 1024];
-        for (int i = 0; i < data.length; i++) data[i] = (byte) 'A';
+        String durationStr = getArg(args, "-duration");
+        String batchStr = getArg(args, "-batch");
+        String threadsStr = getArg(args, "-threads");
 
-        for (int w = 0; w < finalConcurrency; w++) {
-            final int workerId = w;
-            executor.submit(() -> {
-                int loop = 0;
-                while (!Thread.currentThread().isInterrupted()) {
-                    loop++;
-                    try (Connection conn = getConnection()) {
-                        String sql = "INSERT INTO memory_test(val) VALUES(?)";
-                        try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
-                            pstmt.setBytes(1, data);
-                            pstmt.executeUpdate();
-                        }
-                        System.out.println(">>> [worker " + workerId + "] 循环 " + loop + " 完成 (" + finalBatchSizeMB + " MB)");
+        if (durationStr == null) {
+            System.err.println(RED + " ✘ 错误：缺失必填参数 -duration (ms)" + RESET);
+            printHelp();
+            return;
+        }
+
+        long durationMs = Long.parseLong(durationStr);
+        int batchSizeMB = (batchStr != null) ? Integer.parseInt(batchStr) : 100;
+        int threads = (threadsStr != null) ? Integer.parseInt(threadsStr) : 4;
+
+        System.out.println(CYAN + " >>> " + RESET + BOLD + "开始内存压力注入: " + RESET + YELLOW + "Buffer Pool 挤兑" + RESET);
+        System.out.println("   批大小: " + batchSizeMB + " MB | 并发线程: " + threads + " | 时长: " + durationMs + " ms");
+    
+    
+        try {
+            runMemoryStress(durationMs, batchSizeMB, threads);
+        } finally {
+            cleanup();
+        }
+    }
+
+    @Override
+    public void printHelp() {
+        System.out.println("\n" + BOLD + "故障画像用法: " + YELLOW + "memory" + RESET);
+        System.out.println("  通过高频插入超大 BLOB 数据抢占 Buffer Pool 资源，观察业务查询的延迟抖动。");
+        System.out.println("\n" + BOLD + "参数列表:" + RESET);
+        System.out.printf("  %-15s %s\n", "-duration", "必填。故障持续时长 (ms)");
+        System.out.printf("  %-15s %s\n", "-batch", "选填。单次插入数据大小 (MB, 默认 100)");
+        System.out.printf("  %-15s %s\n", "-threads", "选填。注入并发线程数 (默认 4)");
+        System.out.println("\n" + BOLD + "示例:" + RESET);
+        System.out.println(CYAN + "  ... memory -duration 60000 -batch 50 -threads 8" + RESET);
+    }
+
+    private void runMemoryStress(long durationMs, int batchSizeMB, int threads) {
+        // 环境准备：创建表
+        try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
+            String sqlType = getStandardDbType();
+            
+            stmt.execute("DROP TABLE IF EXISTS " + tableName);
+
+            if ("postgresql".equals(sqlType)) {
+                stmt.execute("CREATE TABLE " + tableName + "(id SERIAL, val BYTEA)");
+            } else if ("mysql".equals(sqlType)) {
+                stmt.execute("CREATE TABLE " + tableName + "(id INT AUTO_INCREMENT PRIMARY KEY, val LONGBLOB)");
+            } else {
+                stmt.execute("CREATE TABLE " + tableName + "(id INT PRIMARY KEY, val BLOB)");
+            }
+        } catch (SQLException e) {
+            System.err.println(RED + "✘ 环境初始化失败: " + e.getMessage() + RESET);
+            return;
+        }
+
+        // 构造压力数据
+        byte[] payload = new byte[batchSizeMB * 1024 * 1024];
+        java.util.Arrays.fill(payload, (byte) 'X');
+
+        long endTimeMs = System.currentTimeMillis() + durationMs;
+        ExecutorService executor = Executors.newFixedThreadPool(threads);
+
+        for (int i = 0; i < threads; i++) {
+            final int tid = i;
+            executor.execute(() -> {
+                String sql = "INSERT INTO " + tableName + "(val) VALUES(?)";
+                while (System.currentTimeMillis() < endTimeMs) {
+                    try (Connection conn = getConnection(); 
+                         PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                        pstmt.setBytes(1, payload);
+                        pstmt.executeUpdate();
+                        // 插入成功后不输出太多日志，避免控制台 I/O 干扰注入性能
                     } catch (SQLException e) {
-                        System.err.println(">>> [worker " + workerId + "] 插入出错: " + e.getMessage());
-                        try { Thread.sleep(1000); } catch (InterruptedException ex) { break; }
+                        // 注入期间的偶发错误可忽略
                     }
                 }
             });
         }
 
-        // 运行一段时间后停止，或者让用户手动停止
-        System.out.println(">>> 压力注入中... 按 Ctrl+C 停止 (或在 Main 中根据需要调整持续时间)");
         executor.shutdown();
-        executor.awaitTermination(30, TimeUnit.MINUTES);
+        try {
+            executor.awaitTermination(durationMs + 5000, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException ignored) {}
+        System.out.println(BOLD + " >>> 内存压力注入阶段结束。" + RESET);
+    }
+
+    private void cleanup() {
+        try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
+            System.out.println(CYAN + " ➤ 正在清理测试数据..." + RESET);
+            stmt.execute("DROP TABLE IF EXISTS " + tableName);
+        } catch (SQLException e) {
+            System.err.println(RED + "✘ 清理失败: " + e.getMessage() + RESET);
+        }
     }
 }
