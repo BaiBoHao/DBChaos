@@ -4,7 +4,9 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Properties;
+import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -25,6 +27,16 @@ public class Main {
     private static final String RED    = "\u001B[31m";
     private static final String BOLD   = "\u001B[1m";
     private static final String DIM    = "\u001B[2m";
+
+    // 常规变量
+    private static final Set<String> SUPPORTED_DBS = new HashSet<>(Arrays.asList(
+        "opengauss", "og", "postgresql", "pg", "mysql", "oceanbase", "ob"
+    ));
+
+    private static final Set<String> FAULT_KEYWORDS = new HashSet<>(Arrays.asList(
+        "plan_flip", "max_connection", "stack_overflow", "massive_rollback", 
+        "memory", "max_prepared", "uncommitted_txn", "duplicate_txn"
+    ));
 
     static {
         try (InputStream in = Main.class.getResourceAsStream("/chaos.properties")) {
@@ -54,6 +66,28 @@ public class Main {
             showFullHelp();
             return;
         }
+
+        // 2. 参数基本校验
+        String firstArg = args[0].toLowerCase();
+        if (FAULT_KEYWORDS.contains(firstArg)) {
+            System.err.println(RED + BOLD + " ✘ 格式错误: 命令行首个参数必须是 [数据库类型]" + RESET);
+            System.err.println(YELLOW + " ➤ 漏写数据库？正确用法: java -jar DBChaos.jar opengauss " + firstArg + " ..." + RESET);
+            return;
+        }
+
+        if (!SUPPORTED_DBS.contains(firstArg)) {
+            System.err.println(RED + BOLD + " ✘ 错误: 不支持的数据库类型 [" + args[0] + "]" + RESET);
+            System.out.println(DIM + " 受支持的数据库: " + RESET + CYAN + SUPPORTED_DBS + RESET);
+            return;
+        }
+
+        if (args.length < 2) {
+            System.out.println(GREEN + " ➤ 已选数据库: " + RESET + BOLD + firstArg + RESET);
+            System.err.println(RED + " ✘ 缺失参数: 请指定 [故障画像]" + RESET);
+            printFaultTable();
+            return;
+        }
+
 
         // 2. 基础参数解析
         if (args.length == 1) {
@@ -133,11 +167,11 @@ public class Main {
         System.out.printf(DIM + "  %-18s | %s\n" + RESET, "画像关键字 (ID)", "功能描述 (Description)");
         System.out.println("  " + "-".repeat(60));
         String[][] faults = {
-            {"plan_flip", "执行计划震荡/跳变故障"},
-            {"max_connection", "数据库最大连接数挤兑 (线程池饱和/连接耗尽)"},
-            {"stack_overflow", "内核函数递归导致栈溢出"},
-            {"massive_rollback", "大规模事务回滚导致的 I/O 压力"},
-            {"memory", "模拟数据库内存溢出或占用过高"},
+            {"plan_flip", "执行计划跳变"},
+            {"max_connection", "数据库最大连接数 (线程池饱和/连接耗尽)"},
+            {"stack_overflow", "递归导致栈溢出"},
+            {"massive_rollback", "大规模事务回滚"},
+            {"memory", "数据库内存溢出或占用过高"},
             {"uncommitted_txn", "长事务导致的行锁持有故障"},
             {"duplicate_txn", "热点行高度并发冲突"}
         };
@@ -153,6 +187,8 @@ public class Main {
             case "max_connection": return new chaos.inject.MaxConnectionInject(dbType);
             // 大量事务回滚
             case "massive_rollback": return new chaos.inject.MassiveRollbackInject(dbType);
+            // 计划跳变
+            case "plan_flip": return new chaos.inject.PlanFlipInject(dbType);
             case "base": return new BaseFaultInject(dbType, "BASE") {
                 @Override public void execute(String[] args) { this.printHelp(); }
             };

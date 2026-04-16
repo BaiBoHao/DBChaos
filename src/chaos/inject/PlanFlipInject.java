@@ -49,25 +49,46 @@ public class PlanFlipInject extends BaseFaultInject {
 
     @Override
     public void execute(String[] args) throws Exception {
+        // 参数检查
+        if (args.length == 0 || hasArg(args, "-h") || hasArg(args, "--help")) {
+            printHelp();
+            return;
+        }
         // 参数编排
-        String tableName = "chaos_sandbox_" + (System.currentTimeMillis() / 1000 % 10000);
-        int threads = 16;
-        long durationMs = 300000; // 默认 5 分钟
-        int skewCount = 1000000;  // 倾斜数据量
-        long flipInterval = 60000; // 两次跳变的间隔
+        String table = getArg(args, "-table");
+        String tableName = (table != null) ? table : "chaos_sandbox_" + (System.currentTimeMillis() % 10000);
+        String durationStr = getArg(args, "-duration");
+        String threadsStr = getArg(args, "-threads");
+        String countStr = getArg(args, "-count");
+        String intervalStr = getArg(args, "-interval");
 
-        for (int i = 0; i < args.length; i++) {
-            switch (args[i].toLowerCase()) {
-                case "-table": tableName = args[++i]; break;
-                case "-threads": threads = Integer.parseInt(args[++i]); break;
-                case "-duration": durationMs = Long.parseLong(args[++i]); break;
-                case "-count": skewCount = Integer.parseInt(args[++i]); break;
-                case "-interval": flipInterval = Long.parseLong(args[++i]); break;
-            }
+        if (durationStr == null) {
+            System.err.println("\u001B[31m ✘ 错误：缺失必填参数 -duration (ms)\u001B[0m");
+            printHelp();
+            return;
         }
 
-        System.out.println("[画像构造] 引擎: " + this.dbType + " | 沙盒表: " + tableName + " | 并发: " + threads);
+        long durationMs = Long.parseLong(durationStr);
+        int threads = (threadsStr != null) ? Integer.parseInt(threadsStr) : 16;
+        int skewCount = (countStr != null) ? Integer.parseInt(countStr) : 1000000;
+        long flipInterval = (intervalStr != null) ? Long.parseLong(intervalStr) : 60000;
+
+        System.out.println("\u001B[36m ➤ \u001B[0m\u001B[1m画像构造: \u001B[0m\u001B[33m计划震荡\u001B[0m | 表: " + tableName + " | 并发: " + threads);
         runPlanOscillation(tableName, threads, durationMs, skewCount, flipInterval);
+    }
+
+    @Override
+    public void printHelp() {
+        System.out.println("\n\u001B[1m故障画像用法: \u001B[33mplan_flip\u001B[0m");
+        System.out.println("  通过构造数据倾斜触发统计信息更新，强制优化器在 IndexScan 与 SeqScan 间震荡。");
+        System.out.println("\n\u001B[1m参数列表:\u001B[0m");
+        System.out.printf("  %-15s %s\n", "-duration", "必填。故障总时长 (ms)");
+        System.out.printf("  %-15s %s\n", "-table", "选填。沙盒表名 (默认随机)");
+        System.out.printf("  %-15s %s\n", "-threads", "选填。负载查询线程数 (默认 16)");
+        System.out.printf("  %-15s %s\n", "-count", "选填。倾斜数据行数 (默认 1,000,000)");
+        System.out.printf("  %-15s %s\n", "-interval", "选填。单次跳变周期 (默认 60,000ms)");
+        System.out.println("\n\u001B[1m示例:\u001B[0m");
+        System.out.println("  ... plan_flip -duration 300000 -count 2000000 -interval 30000");
     }
 
     private void runPlanOscillation(String tableName, int threads, long durationMs, int skewCount, long interval) throws Exception {
@@ -84,13 +105,15 @@ public class PlanFlipInject extends BaseFaultInject {
             int cycle = 0;
             while (System.currentTimeMillis() < endTime) {
                 cycle++;
-                System.out.println("\n--- 第 " + cycle + " 轮计划跳变循环 ---");
+                System.out.println("\n\u001B[36m[Cycle " + cycle + "]\u001B[0m --------------------------------------");
                 
                 // 1. 注入倾斜数据诱导跳变
                 injectSkewedPhase(initConn, tableName, skewCount);
                 
                 // 2. 观察期：监控延迟和内核统计刷新
                 monitorPhase(initConn, tableName, interval / 2);
+
+                if (System.currentTimeMillis() >= endTime) break;
 
                 // 3. 恢复数据分布
                 restoreBalancedPhase(initConn, tableName);
@@ -133,8 +156,8 @@ public class PlanFlipInject extends BaseFaultInject {
         while (System.currentTimeMillis() < phaseEnd) {
             long avgLat = getAverageLatency();
             String lastAuto = getKernelLastAnalyze(conn, tableName);
-            System.out.println("[" + getNow() + "] 当前平均延迟: " + avgLat + " ns | 内核自动分析记录: " + lastAuto);
-            
+            System.out.format("[%s] 实时延迟: \u001B[32m%d\u001B[0m ns | 统计信息刷新时刻: \u001B[35m%s\u001B[0m\n", 
+                             getNow(), avgLat, lastAuto);
             Thread.sleep(5000);
             resetStats();
         }
