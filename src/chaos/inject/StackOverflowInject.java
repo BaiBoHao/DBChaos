@@ -15,6 +15,14 @@ import chaos.core.BaseFaultInject;
  */
 public class StackOverflowInject extends BaseFaultInject {
 
+    // ANSI 颜色定义
+    private static final String RESET  = "\u001B[0m";
+    private static final String CYAN   = "\u001B[36m";
+    private static final String YELLOW = "\u001B[33m";
+    private static final String RED    = "\u001B[31m";
+    private static final String BOLD   = "\u001B[1m";
+    private static final String GREEN  = "\u001B[32m";
+
     private String setStackDepthSql = "";
     private String setJoinLimitSql = "";
 
@@ -58,57 +66,69 @@ public class StackOverflowInject extends BaseFaultInject {
 
     @Override
     public void execute(String[] args) throws Exception {
-        String mode = "func_recurse"; 
-        long duration = 0;
-        long interval = 1000;
-
-        for (int i = 0; i < args.length; i++) {
-            if ("-type".equalsIgnoreCase(args[i]) || "-mode".equalsIgnoreCase(args[i])) {
-                mode = args[++i].toLowerCase();
-            } else if ("-duration".equalsIgnoreCase(args[i])) {
-                duration = Long.parseLong(args[++i]);
-            } else if ("-interval".equalsIgnoreCase(args[i])) {
-                interval = Long.parseLong(args[++i]);
-            }
-        }
-
-        if (duration <= 0) {
-            System.err.println("错误：请指定大于 0 的持续时间，例如: -duration 10000");
-            printUsage();
+        if (args.length == 0 || hasArg(args, "-h") || hasArg(args, "--help")) {
+            printHelp();
             return;
         }
 
-        System.out.println("[栈溢出注入] 引擎: " + this.dbType + " | 语系: " + getStandardDbType() + " | 模式: " + mode);
-        runFaultInjection(mode, duration, interval);
+        String mode = getArg(args, "-mode");
+        if (mode == null) mode = getArg(args, "-type");
+        String durationStr = getArg(args, "-duration");
+        String intervalStr = getArg(args, "-interval");
+    
+        if (durationStr == null) {
+            System.err.println(RED + " ✘ 错误：缺失必填参数 -duration (ms)" + RESET);
+            printHelp();
+            return;
+        }
+
+        long durationMs = Long.parseLong(durationStr);
+        long intervalMs = (intervalStr != null) ? Long.parseLong(intervalStr) : 1000;
+        String finalMode = (mode != null) ? mode.toLowerCase() : "func_recurse";
+
+        System.out.println(CYAN + " >>> " + RESET + BOLD + "正在启动故障注入: " + RESET + YELLOW + "栈溢出 (Stack Overflow)" + RESET);
+        System.out.println("   模式: " + finalMode + " | 间隔: " + intervalMs + "ms | 持续: " + durationMs + "ms");
+        
+        runFaultLoop(finalMode, durationMs, intervalMs);
     }
 
-    private void printUsage() {
-        System.err.println("可选模式 (-mode 或 -type):");
-        System.err.println("  func_recurse  : 函数递归爆栈");
-        System.err.println("  proc_recurse  : 存储过程递归爆栈");
-        System.err.println("  trans_recurse : 事务中触发函数递归");
-        System.err.println("  sql_depth     : 深度 SQL 解析爆栈");
-        System.err.println("  view_nest     : 视图深度嵌套爆栈");
-        System.err.println("  join_bomb     : 多表连接执行计划爆栈");
+    @Override
+    public void printHelp() {
+        System.out.println("\n" + BOLD + "故障画像用法: " + YELLOW + "stack_overflow" + RESET);
+        System.out.println("  通过深度递归、表达式爆破或视图嵌套，模拟内核栈溢出场景，验证数据库熔断机制。");
+        System.out.println("\n" + BOLD + "参数列表:" + RESET);
+        System.out.printf("  %-15s %s\n", "-duration", "必填。故障总时长 (ms)");
+        System.out.printf("  %-15s %s\n", "-mode", "选填。爆栈策略 (默认 func_recurse)");
+        System.out.printf("  %-15s %s\n", "-interval", "选填。注入频率间隔 (默认 1000ms)");
+        
+        System.out.println("\n" + BOLD + "支持的模式 (-mode):" + RESET);
+        System.out.printf("  %-15s %s\n", "func_recurse", "函数递归爆栈");
+        System.out.printf("  %-15s %s\n", "proc_recurse", "存储过程递归爆栈");
+        System.out.printf("  %-15s %s\n", "sql_depth", "超深度逻辑表达式解析爆栈");
+        System.out.printf("  %-15s %s\n", "view_nest", "超深度视图嵌套爆栈");
+        System.out.printf("  %-15s %s\n", "join_bomb", "多表连接执行计划搜索爆栈");
+
+        System.out.println("\n" + BOLD + "示例:" + RESET);
+        System.out.println(CYAN + "  ... stack_overflow -duration 60000 -mode view_nest -interval 5000" + RESET);
     }
 
-    private void runFaultInjection(String mode, long duration, long interval) {
-        long startTime = System.currentTimeMillis();
-        long endTime = startTime + duration;
+    private void runFaultLoop(String mode, long duration, long interval) {
+        long endTime = System.currentTimeMillis() + duration;
         SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss");
         int count = 0;
 
         while (System.currentTimeMillis() < endTime) {
             count++;
-            System.out.print("[" + sdf.format(new Date()) + "] 第 " + count + " 次注入尝试 (" + mode + ")... ");
+            System.out.print("[" + sdf.format(new Date()) + "] #" + count + " 尝试触发 " + mode + " ... ");
 
             try (Connection conn = getConnection()) {
                 executeFault(conn, mode);
-                System.out.println("指令发送成功");
+                System.out.println(GREEN + "指令已送达" + RESET);
             } catch (SQLException e) {
-                System.out.println("触发异常 -> " + e.getSQLState() + ": " + e.getMessage().split("\n")[0]);
+                // 栈溢出通常返回 54001 (PostgreSQL) 或相关错误码
+                System.out.println(YELLOW + "触发预定异常 -> [" + e.getSQLState() + "] " + e.getMessage().split("\n")[0] + RESET);
             } catch (Exception e) {
-                System.out.println("执行错误: " + e.getMessage());
+                System.out.println(RED + "执行异常: " + e.getMessage() + RESET);
             }
 
             if (System.currentTimeMillis() + interval < endTime) {
@@ -117,7 +137,7 @@ public class StackOverflowInject extends BaseFaultInject {
                 break;
             }
         }
-        System.out.println(">>> 注入任务执行结束。");
+        System.out.println(BOLD + "\n ✔ 栈溢出注入任务结束" + RESET);
     }
 
     private void executeFault(Connection conn, String mode) throws SQLException {

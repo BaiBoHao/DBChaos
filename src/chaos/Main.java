@@ -189,6 +189,8 @@ public class Main {
             case "massive_rollback": return new chaos.inject.MassiveRollbackInject(dbType);
             // 计划跳变
             case "plan_flip": return new chaos.inject.PlanFlipInject(dbType);
+            // 爆栈
+            case "stack_overflow": return new chaos.inject.StackOverflowInject(dbType);
             case "base": return new BaseFaultInject(dbType, "BASE") {
                 @Override public void execute(String[] args) { this.printHelp(); }
             };
