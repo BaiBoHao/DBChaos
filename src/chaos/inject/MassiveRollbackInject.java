@@ -24,6 +24,7 @@ public class MassiveRollbackInject extends BaseFaultInject {
     private String dbNameSql = "";
     private String statsSql = "";
     private String targetDbName = "";
+    private String loadTableName = "";
 
     public MassiveRollbackInject(String dbType) {
         super(dbType, "MASSIVE_ROLLBACK");
@@ -69,6 +70,8 @@ public class MassiveRollbackInject extends BaseFaultInject {
 
         // 1. 环境探测与初始指标采集
         detectTargetDbName();
+        loadTableName = "chaos_rollback_load_" + (System.currentTimeMillis() / 1000);
+        createPermanentLoadTable();
         long[] initialStats = getDatabaseTransactionStats();
 
 
@@ -76,12 +79,15 @@ public class MassiveRollbackInject extends BaseFaultInject {
         // 2. 执行并发负载
         runRollbackLoad(durationMs, threads, rollbackRate);
 
-        // 3. 结果汇总
-        System.out.println(">>> 注入结束，正在采集最终指标...");
-        Thread.sleep(2000); 
-        long[] finalStats = getDatabaseTransactionStats();
+            // 3. 结果汇总
+            System.out.println(">>> 注入结束，正在采集最终指标...");
+            Thread.sleep(2000);
+            long[] finalStats = getDatabaseTransactionStats();
 
-        displayReport(initialStats, finalStats);
+            displayReport(initialStats, finalStats);
+        } finally {
+            dropPermanentLoadTable();
+        }
     }
 
     @Override
@@ -126,6 +132,7 @@ public class MassiveRollbackInject extends BaseFaultInject {
         ExecutorService executor = Executors.newFixedThreadPool(threads);
         
         for (int i = 0; i < threads; i++) {
+            final int workerId = i;
             executor.execute(() -> {
                 try (Connection conn = getConnection()) {
                     conn.setAutoCommit(false);

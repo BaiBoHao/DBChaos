@@ -22,6 +22,8 @@ import chaos.core.BaseFaultInject;
  */
 public class DuplicateTxnInject extends BaseFaultInject {
 
+    private static final String SCHEMA_NAME = "dup_txn_inject";
+
     private String setTimeoutSql;
     private String lockStatsSql;
     
@@ -55,7 +57,7 @@ public class DuplicateTxnInject extends BaseFaultInject {
         int tmpSessions = 50;
         int tmpDuration = 30;
         String tmpMode = "UPDATE"; // 可选：UPDATE, INSERT
-        String tableName = "fault_inject.chaos_hot_row";
+        String tableName = SCHEMA_NAME + ".chaos_hot_row";
 
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
@@ -108,7 +110,7 @@ public class DuplicateTxnInject extends BaseFaultInject {
     private void prepareEnvironment(String tableName, String mode) throws SQLException {
         try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
             if ("postgresql".equals(getStandardDbType())) {
-                stmt.execute("CREATE SCHEMA IF NOT EXISTS fault_inject");
+                stmt.execute("CREATE SCHEMA IF NOT EXISTS " + SCHEMA_NAME);
             }
             stmt.execute("DROP TABLE IF EXISTS " + tableName);
             stmt.execute("CREATE TABLE " + tableName + " (id INT PRIMARY KEY, value INT, info TEXT)");
