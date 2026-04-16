@@ -3,7 +3,6 @@ package chaos.inject;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -13,14 +12,13 @@ import chaos.core.BaseFaultInject;
 
 /**
  * 未提交事务（长事务锁冲突）故障注入实现。
- * 逻辑：由 Holder 线程获取行级锁后保持不提交，使 Waiter 线程进入锁定等待状态。
- * 支持 PostgreSQL (openGauss) 与 MySQL 语系的泛化处理。
+ * 逻辑：Holder 线程对业务表执行 SELECT ... FOR UPDATE 进行纯加锁，不修改数据。
+ * duration 到时统一回滚释放锁。
  */
 public class UncommittedTxnInject extends BaseFaultInject {
 
-    private String setTimeoutSql;
-    private String createTableSql;
     private final List<Connection> activeHolders = new ArrayList<>();
+    private static final String IDENTIFIER_PATTERN = "^[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)?$";
 
     public UncommittedTxnInject(String dbType) {
         super(dbType, "UNCOMMITTED_TXN");
@@ -28,129 +26,109 @@ public class UncommittedTxnInject extends BaseFaultInject {
     }
 
     private void initSqlTemplates() {
-        String sqlType = getStandardDbType();
-        if ("postgresql".equals(sqlType)) {
-            // PostgreSQL/openGauss 风格
-            this.setTimeoutSql = "SET statement_timeout = '%ds'";
-            this.createTableSql = "CREATE UNLOGGED TABLE %s (id SERIAL PRIMARY KEY, value INT)";
-        } else if ("mysql".equals(sqlType)) {
-            // MySQL 风格 (max_execution_time 单位为毫秒)
-            this.setTimeoutSql = "SET max_execution_time = %d";
-            this.createTableSql = "CREATE TABLE %s (id INT AUTO_INCREMENT PRIMARY KEY, value INT) ENGINE=InnoDB";
-        }
+        // 纯加锁模式不需要 SQL 模板初始化，保留方法以保持类结构。
     }
 
     @Override
     public void execute(String[] args) throws Exception {
         // 1. 使用临时变量进行参数解析
         int tmpHolders = 1;
-        int tmpWaiters = 10;
         int tmpDuration = 60;
         int tmpRows = 5;
-        int tmpTimeout = 30;
-        String tableName = "fault_inject.chaos_lock_test";
+        String tableSpec = "bmsql_stock";
 
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
                 case "-holders": tmpHolders = Integer.parseInt(args[++i]); break;
-                case "-waiters": tmpWaiters = Integer.parseInt(args[++i]); break;
                 case "-duration": tmpDuration = Integer.parseInt(args[++i]); break;
                 case "-rows": tmpRows = Integer.parseInt(args[++i]); break;
-                case "-timeout": tmpTimeout = Integer.parseInt(args[++i]); break;
+                case "-table": tableSpec = args[++i]; break;
+                case "-tables": tableSpec = args[++i]; break;
+                case "-waiters": i++; break;
+                case "-timeout": i++; break;
             }
         }
 
         // 2. 【核心修复】定义为 final 变量，确保 Lambda 引用安全
         final int holders = tmpHolders;
-        final int waiters = tmpWaiters;
         final int duration = tmpDuration;
         final int rows = tmpRows;
-        final int timeout = tmpTimeout;
+        final List<String> targetTables = parseAndValidateTableNames(tableSpec);
 
-        System.out.println("[故障信息] 目标表: " + tableName + " | 受影响行数: " + rows);
-        System.out.println("[配置信息] 持锁线程: " + holders + " | 等待线程: " + waiters + " | 持续时间: " + duration + "s");
+        if (holders <= 0 || duration <= 0 || rows <= 0) {
+            throw new IllegalArgumentException("-holders/-duration/-rows 必须为正数");
+        }
+
+        System.out.println("[故障信息] 目标业务表: " + String.join(", ", targetTables) + " | 每线程每表锁定行数: " + rows);
+        System.out.println("[配置信息] 持锁线程: " + holders + " | 持续时间: " + duration + "s");
+        System.out.println("[提示] 当前模式为纯加锁，不执行任何 UPDATE/INSERT，也不启动 Waiter 线程。");
+
+        ExecutorService holderPool = null;
 
         try {
-            // 1. 初始化沙盒环境
-            prepareEnvironment(tableName, rows);
-
-            // 2. 启动持锁线程 (Holders)
-            ExecutorService holderPool = Executors.newFixedThreadPool(holders);
+            // 启动持锁线程，使用 SELECT ... FOR UPDATE 对业务表加锁。
+            holderPool = Executors.newFixedThreadPool(holders);
             for (int i = 0; i < holders; i++) {
                 final int id = i;
-                // 此时引用的是上面定义的 final rows
-                holderPool.execute(() -> startHolder(tableName, id, rows));
+                holderPool.execute(() -> startHolder(targetTables, id, rows));
             }
 
-            Thread.sleep(2000);
+            // 持锁指定时长，到时统一回滚释放锁。
+            Thread.sleep(duration * 1000L);
+            System.out.println("[控制信息] 持锁时间到，开始回滚并释放 Holder 锁...");
+            releaseHolders();
 
-            // 3. 启动等待线程 (Waiters)
-            ExecutorService waiterPool = Executors.newFixedThreadPool(waiters);
-            for (int i = 0; i < waiters; i++) {
-                final int id = i;
-                // 此时引用的是上面定义的 final rows 和 timeout
-                waiterPool.execute(() -> startWaiter(tableName, id, rows, timeout));
-            }
-
-            // ... 后续逻辑保持不变
+            // 等待 Holder 线程退出。
+            holderPool.shutdown();
+            holderPool.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS);
         } finally {
-            cleanup(tableName);
+            if (holderPool != null && !holderPool.isShutdown()) {
+                holderPool.shutdownNow();
+            }
+            releaseHolders();
         }
     }
 
-    private void prepareEnvironment(String tableName, int rows) throws SQLException {
-        try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
-            if ("postgresql".equals(getStandardDbType())) {
-                stmt.execute("CREATE SCHEMA IF NOT EXISTS fault_inject");
-            }
-            stmt.execute("DROP TABLE IF EXISTS " + tableName);
-            stmt.execute(String.format(createTableSql, tableName));
-
-            // 预填充数据
-            conn.setAutoCommit(false);
-            String insertSql = "INSERT INTO " + tableName + " (value) VALUES (0)";
-            for (int i = 0; i < rows; i++) {
-                stmt.addBatch(insertSql);
-            }
-            stmt.executeBatch();
-            conn.commit();
-        }
-    }
-
-    private void startHolder(String tableName, int id, int rows) {
+    private void startHolder(List<String> tableNames, int id, int rows) {
         try {
             Connection conn = getConnection();
             conn.setAutoCommit(false); // 关键：关闭自动提交以持有锁
             synchronized (activeHolders) { activeHolders.add(conn); }
 
-            String sql = "UPDATE " + tableName + " SET value = value + 1 WHERE id <= ?";
-            try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
-                pstmt.setInt(1, rows);
-                int count = pstmt.executeUpdate();
-                System.out.println("[Holder-" + id + "] 成功锁定 " + count + " 行，事务保持中...");
+            int offset = id * rows;
+            for (String tableName : tableNames) {
+                String sql = "SELECT * FROM " + tableName + " ORDER BY 1 LIMIT ? OFFSET ? FOR UPDATE";
+                try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                    pstmt.setInt(1, rows);
+                    pstmt.setInt(2, offset);
+                    pstmt.executeQuery();
+                    System.out.println("[Holder-" + id + "] 表 " + tableName + " 成功锁定 " + rows + " 行，事务保持中...");
+                }
             }
         } catch (SQLException e) {
             System.err.println("[Holder-" + id + "] 获取锁失败: " + e.getMessage());
         }
     }
 
-    private void startWaiter(String tableName, int id, int rows, int timeout) {
-        try (Connection conn = getConnection()) {
-            try (Statement stmt = conn.createStatement()) {
-                // 设置语句超时，防止线程无限期挂死
-                String sqlTimeout = "postgresql".equals(getStandardDbType()) 
-                    ? String.format(setTimeoutSql, timeout) 
-                    : String.format(setTimeoutSql, timeout * 1000);
-                stmt.execute(sqlTimeout);
-
-                String sqlUpdate = "UPDATE " + tableName + " SET value = value + 1 WHERE id <= " + rows;
-                System.out.println("[Waiter-" + id + "] 尝试获取锁...");
-                stmt.executeUpdate(sqlUpdate);
-            }
-        } catch (SQLException e) {
-            // 预期内的超时错误或锁冲突错误不打印堆栈
-            System.out.println("[Waiter-" + id + "] 状态: " + e.getMessage());
+    private List<String> parseAndValidateTableNames(String tableSpec) {
+        if (tableSpec == null || tableSpec.trim().isEmpty()) {
+            throw new IllegalArgumentException("请通过 -table 或 -tables 指定目标业务表");
         }
+
+        String[] parts = tableSpec.split(",");
+        List<String> tableNames = new ArrayList<>();
+        for (String part : parts) {
+            String tableName = part.trim();
+            if (tableName.isEmpty() || !tableName.matches(IDENTIFIER_PATTERN)) {
+                throw new IllegalArgumentException("非法表名: " + part + "，请使用 schema.table 或 table 格式");
+            }
+            tableNames.add(tableName);
+        }
+
+        if (tableNames.isEmpty()) {
+            throw new IllegalArgumentException("请至少指定一个目标表");
+        }
+        return tableNames;
     }
 
     private void releaseHolders() {
@@ -158,7 +136,7 @@ public class UncommittedTxnInject extends BaseFaultInject {
             for (Connection conn : activeHolders) {
                 try {
                     if (conn != null && !conn.isClosed()) {
-                        conn.commit();
+                        conn.rollback();
                         conn.close();
                     }
                 } catch (SQLException ignored) {}
@@ -167,9 +145,4 @@ public class UncommittedTxnInject extends BaseFaultInject {
         }
     }
 
-    private void cleanup(String tableName) {
-        try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
-            stmt.execute("DROP TABLE IF EXISTS " + tableName);
-        } catch (SQLException ignored) {}
-    }
 }

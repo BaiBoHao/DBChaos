@@ -58,15 +58,11 @@ public abstract class BaseFaultInject {
             
             Properties props = new Properties();
             props.load(in);
-            
-            // this.url = props.getProperty("url");
-            // this.user = props.getProperty("user");
-            // this.password = props.getProperty("password");
 
-            // 优先使用覆盖配置，确保在不同环境下的灵活性和安全性
-            this.url = (overrideUrl != null) ? overrideUrl : props.getProperty("url");
-            this.user = (overrideUser != null) ? overrideUser : props.getProperty("user");
-            this.password = (overridePassword != null) ? overridePassword : props.getProperty("password");
+            // 优先使用覆盖配置；未覆盖时优先读取数据库类型专属配置，再回退到通用配置。
+            this.url = chooseConfigValue(props, "url", overrideUrl);
+            this.user = chooseConfigValue(props, "user", overrideUser);
+            this.password = chooseConfigValue(props, "password", overridePassword);
 
             if (this.url == null || this.user == null || this.password == null) {
                 throw new RuntimeException("db.properties 配置不完整");
@@ -77,6 +73,7 @@ public abstract class BaseFaultInject {
             String lowerDb = dbType.toLowerCase();
             switch (lowerDb) {
                 case "opengauss":
+                    // Some openGauss JDBC distributions expose the driver as org.postgresql.Driver.
                     driverClass = "org.opengauss.Driver";
                     break;
                 case "postgresql":
@@ -93,11 +90,55 @@ public abstract class BaseFaultInject {
             try {
                 Class.forName(driverClass);
             } catch (ClassNotFoundException e) {
-                throw new RuntimeException("找不到驱动类 " + driverClass + "，请检查 lib 目录下是否放入了对应的 jdbc jar 包！");
+                // openGauss JDBC is often packaged under PostgreSQL driver namespace.
+                if ("opengauss".equals(lowerDb)) {
+                    try {
+                        Class.forName("org.postgresql.Driver");
+                    } catch (ClassNotFoundException e2) {
+                        throw new RuntimeException("找不到驱动类 org.opengauss.Driver 或 org.postgresql.Driver，请检查 JDBC 依赖是否已正确打包。");
+                    }
+                } else {
+                    throw new RuntimeException("找不到驱动类 " + driverClass + "，请检查 JDBC 依赖是否已正确打包。");
+                }
             }
             
         } catch (Exception e) {
             throw new RuntimeException("初始化基类失败: " + e.getMessage());
+        }
+    }
+
+    private String chooseConfigValue(Properties props, String keySuffix, String overrideVal) {
+        if (overrideVal != null && !overrideVal.trim().isEmpty()) {
+            return overrideVal;
+        }
+
+        String[] candidates = getDbConfigPrefixes();
+        for (String prefix : candidates) {
+            String v = props.getProperty(prefix + "." + keySuffix);
+            if (v != null && !v.trim().isEmpty()) {
+                return v;
+            }
+        }
+
+        String fallback = props.getProperty(keySuffix);
+        return (fallback == null || fallback.trim().isEmpty()) ? null : fallback;
+    }
+
+    private String[] getDbConfigPrefixes() {
+        String lower = (dbType == null) ? "" : dbType.toLowerCase();
+        switch (lower) {
+            case "mysql":
+                return new String[] {"mysql"};
+            case "oceanbase":
+            case "ob":
+                return new String[] {"oceanbase", "ob", "mysql"};
+            case "opengauss":
+            case "og":
+                return new String[] {"opengauss", "og", "postgresql"};
+            case "postgresql":
+                return new String[] {"postgresql"};
+            default:
+                return new String[0];
         }
     }
 

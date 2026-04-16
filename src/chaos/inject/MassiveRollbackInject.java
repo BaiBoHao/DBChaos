@@ -24,6 +24,7 @@ public class MassiveRollbackInject extends BaseFaultInject {
     private String dbNameSql = "";
     private String statsSql = "";
     private String targetDbName = "";
+    private String loadTableName = "";
 
     public MassiveRollbackInject(String dbType) {
         super(dbType, "MASSIVE_ROLLBACK");
@@ -46,6 +47,7 @@ public class MassiveRollbackInject extends BaseFaultInject {
     public void execute(String[] args) throws Exception {
         int durationSec = 60;
         int threads = 16;
+        int batchSize = 10;
         double rollbackRate = 0.7;
 
         for (int i = 0; i < args.length; i++) {
@@ -55,6 +57,7 @@ public class MassiveRollbackInject extends BaseFaultInject {
                 switch (key) {
                     case "-duration": durationSec = Integer.parseInt(val); i++; break;
                     case "-threads": threads = Integer.parseInt(val); i++; break;
+                    case "-batchsize": batchSize = Integer.parseInt(val); i++; break;
                     case "-rate": rollbackRate = Double.parseDouble(val); i++; break;
                 }
             }
@@ -62,20 +65,26 @@ public class MassiveRollbackInject extends BaseFaultInject {
 
         // 1. 环境探测与初始指标采集
         detectTargetDbName();
+        loadTableName = "chaos_rollback_load_" + (System.currentTimeMillis() / 1000);
+        createPermanentLoadTable();
         long[] initialStats = getDatabaseTransactionStats();
         long endTimeMs = System.currentTimeMillis() + (durationSec * 1000L);
 
-        System.out.println("[大规模回滚] 目标库: " + targetDbName + " | 线程: " + threads + " | 预期回滚率: " + (rollbackRate * 100) + "%");
+        System.out.println("[大规模回滚] 目标库: " + targetDbName + " | 压测表: " + loadTableName + " | 线程: " + threads + " | 每事务批量: " + batchSize + " | 预期回滚率: " + (rollbackRate * 100) + "%");
 
-        // 2. 执行并发负载
-        runRollbackLoad(endTimeMs, threads, rollbackRate);
+        try {
+            // 2. 执行并发负载
+            runRollbackLoad(endTimeMs, threads, rollbackRate, batchSize);
 
-        // 3. 结果汇总
-        System.out.println(">>> 注入结束，正在采集最终指标...");
-        Thread.sleep(2000); 
-        long[] finalStats = getDatabaseTransactionStats();
+            // 3. 结果汇总
+            System.out.println(">>> 注入结束，正在采集最终指标...");
+            Thread.sleep(2000);
+            long[] finalStats = getDatabaseTransactionStats();
 
-        displayReport(initialStats, finalStats);
+            displayReport(initialStats, finalStats);
+        } finally {
+            dropPermanentLoadTable();
+        }
     }
 
     private void detectTargetDbName() {
@@ -88,24 +97,48 @@ public class MassiveRollbackInject extends BaseFaultInject {
         }
     }
 
-    private void runRollbackLoad(long endTimeMs, int threads, double rollbackRate) {
+    private void createPermanentLoadTable() {
+        String sqlType = getStandardDbType();
+        try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
+            stmt.execute("DROP TABLE IF EXISTS " + loadTableName);
+            if ("postgresql".equals(sqlType)) {
+                stmt.execute("CREATE TABLE " + loadTableName + " (id BIGINT, worker_id INT, val DOUBLE PRECISION)");
+            } else {
+                stmt.execute("CREATE TABLE " + loadTableName + " (id BIGINT, worker_id INT, val DOUBLE)");
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("创建永久压测表失败: " + e.getMessage());
+        }
+    }
+
+    private void dropPermanentLoadTable() {
+        if (loadTableName == null || loadTableName.isEmpty()) return;
+        try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
+            stmt.execute("DROP TABLE IF EXISTS " + loadTableName);
+            System.out.println(">>> 已清理压测表: " + loadTableName);
+        } catch (SQLException e) {
+            System.err.println("清理压测表失败: " + e.getMessage());
+        }
+    }
+
+    private void runRollbackLoad(long endTimeMs, int threads, double rollbackRate, int batchSize) {
         ExecutorService executor = Executors.newFixedThreadPool(threads);
         for (int i = 0; i < threads; i++) {
+            final int workerId = i;
             executor.execute(() -> {
                 try (Connection conn = getConnection()) {
-                    // 创建临时表，避免干扰持久化数据
-                    try (Statement stmt = conn.createStatement()) {
-                        stmt.execute("CREATE TEMPORARY TABLE chaos_rollback_load (id BIGINT, val FLOAT)");
-                    }
-
                     conn.setAutoCommit(false);
-                    String insertSql = "INSERT INTO chaos_rollback_load VALUES (?, ?)";
+                    String insertSql = "INSERT INTO " + loadTableName + " VALUES (?, ?, ?)";
                     try (PreparedStatement ps = conn.prepareStatement(insertSql)) {
                         long k = 0;
                         while (System.currentTimeMillis() < endTimeMs) {
-                            ps.setLong(1, k++);
-                            ps.setDouble(2, Math.random());
-                            ps.executeUpdate();
+                            for (int batchIndex = 0; batchIndex < batchSize; batchIndex++) {
+                                ps.setLong(1, k++);
+                                ps.setInt(2, workerId);
+                                ps.setDouble(3, Math.random());
+                                ps.addBatch();
+                            }
+                            ps.executeBatch();
 
                             if (Math.random() < rollbackRate) {
                                 conn.rollback();
