@@ -1,0 +1,16 @@
+常用用法：
+
+画最新一次 run
+python3 scripts/plot_tpcc_tpm.py
+
+指定某次 run
+python3 scripts/plot_tpcc_tpm.py --run-prefix tpcc_2026-04-15_22-35-56
+
+按 10 秒分桶（更平滑）
+python3 scripts/plot_tpcc_tpm.py --run-prefix tpcc_2026-04-15_22-35-56 --interval-sec 10
+
+跳过前几分钟
+python3 scripts/plot_tpcc_tpm.py --run-prefix tpcc_2026-04-15_22-35-56 --skip-minutes 2
+
+指定输出文件
+python3 scripts/plot_tpcc_tpm.py --run-prefix tpcc_2026-04-15_22-35-56 --output results/plots/tpcc_2026-04-15_22-35-56_10s.png
