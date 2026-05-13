@@ -19,3 +19,4 @@
 
 - [Initial project intake](20260513T213649-project-intake.md) - Bootstrapped `.agents` tracking, noted current branch and pre-existing dirty worktree before project reading.
 - [High-level project reading](20260513T214020-project-reading.md) - Summarized DBChaos architecture, fault profiles, validation results, and initial routing/build risks.
+- [Fault taxonomy mapping](20260513T214625-fault-taxonomy-mapping.md) - Classified currently implemented DBChaos fault profiles into the user's table categories.
