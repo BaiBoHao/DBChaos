@@ -1,0 +1,21 @@
+# DBChaos Agent Index
+
+## Project
+
+- Project root: `E:\DBChaos`
+- Project UUID: `27f12b1d-6d86-4c59-a60b-509583178478`
+- Main branch: `main`
+- Current working branch: `codex/project-intake-20260513`
+- Related project indexes: none recorded
+
+## Reading Rules
+
+- Use this file as the default entry point.
+- Keep this index short and append-only.
+- Read only the detail entries needed for the current task.
+- Do not use root-level long progress files as default context.
+
+## Entries
+
+- [Initial project intake](20260513T213649-project-intake.md) - Bootstrapped `.agents` tracking, noted current branch and pre-existing dirty worktree before project reading.
+- [High-level project reading](20260513T214020-project-reading.md) - Summarized DBChaos architecture, fault profiles, validation results, and initial routing/build risks.
