@@ -1,102 +1,112 @@
-# DBChaos Config Generator
+# DBChaos 配置生成脚本
 
-This directory contains `scripts/generate_configs.py`.
+`scripts/generate_configs.py` 用于把 DBChaos 已实现的不利注入能力转换成上游 TPC-C 与 ChaosBlade 工作流需要的 XML 配置。
 
-The script converts DBChaos fault injections into the XML files expected by the upstream TPC-C + ChaosBlade workflow.
+它会生成三份文件：
 
-It generates three files:
+- `opengauss_tpcc_config_chaosblade.xml`：主配置文件，包含全部 DBChaos `<faultCases>`。
+- `tpcc_worker.xml`：TPC-C worker 配置，指定最终使用的 `testSuite`。
+- `fault-cases-generic.xml`：最终生效的不利注入实例，`<testSuite>` 在这里定义。
 
-- `opengauss_tpcc_config_chaosblade.xml`: main config with all DBChaos `<faultCases>`.
-- `tpcc_worker.xml`: worker config that points to the selected `testSuite`.
-- `fault-cases-generic.xml`: final suite instance used during the TPC-C run.
+如果输出目标文件不存在，脚本会自动创建目标文件以及父目录。
+生成出来的 XML 可能包含从模板继承来的数据库连接信息，所以这些输出文件默认被 `.gitignore` 忽略。
 
-If an output file does not exist, the script creates the file and its parent directory automatically.
-Generated XML may contain database connection settings inherited from the template, so these files are ignored by `.gitignore`.
+## 快速开始
 
-## Quick Start
-
-Run from `scripts/`:
+建议在 `scripts/` 目录下执行：
 
 ```bash
 cd /home/baibh/DBChaos/scripts
 python3 generate_configs.py --list
 ```
 
-Run from the repository root:
+如果你想在仓库根目录执行，也可以使用：
 
 ```bash
 cd /home/baibh/DBChaos
 python3 scripts/generate_configs.py --list
 ```
 
-Generate all DBChaos cases:
+生成全部 DBChaos 故障点：
 
 ```bash
 cd /home/baibh/DBChaos/scripts
-python3 generate_configs.py   --template-config "opengauss_tpccbbh_config_chaosblade.xml"   --template-worker "tpccbbh-worker.xml"   --template-suites "fault-cases-generic.xml"   --select all
+python3 generate_configs.py \
+  --template-config "opengauss_tpccbbh_config_chaosblade.xml" \
+  --template-worker "tpccbbh-worker.xml" \
+  --template-suites "fault-cases-generic.xml" \
+  --select all
 ```
 
-Generate only selected cases:
+只生成部分故障点：
 
 ```bash
 cd /home/baibh/DBChaos/scripts
-python3 generate_configs.py   --template-config "opengauss_tpccbbh_config_chaosblade.xml"   --template-worker "tpccbbh-worker.xml"   --template-suites "fault-cases-generic.xml"   --select plan_flip,memory_pressure,max_connection_conn_storm
+python3 generate_configs.py \
+  --template-config "opengauss_tpccbbh_config_chaosblade.xml" \
+  --template-worker "tpccbbh-worker.xml" \
+  --template-suites "fault-cases-generic.xml" \
+  --select plan_flip,memory_pressure,max_connection_conn_storm
 ```
 
-Interactive selection:
+交互式选择故障点：
 
 ```bash
 cd /home/baibh/DBChaos/scripts
-python3 generate_configs.py   --template-config "opengauss_tpccbbh_config_chaosblade.xml"   --template-worker "tpccbbh-worker.xml"   --template-suites "fault-cases-generic.xml"   --interactive
+python3 generate_configs.py \
+  --template-config "opengauss_tpccbbh_config_chaosblade.xml" \
+  --template-worker "tpccbbh-worker.xml" \
+  --template-suites "fault-cases-generic.xml" \
+  --interactive
 ```
 
-## Common Options
+## 常用参数
 
-| Option | Meaning |
+| 参数 | 说明 |
 | --- | --- |
-| `--template-config` | OpenGauss TPC-C ChaosBlade config template. |
-| `--template-worker` | TPC-C worker XML template. |
-| `--template-suites` | `fault-cases-generic.xml` template. |
-| `--output-dir` | Output directory. Default is the current script directory. |
-| `--output-config` | Output config filename. Default is `opengauss_tpcc_config_chaosblade.xml`. |
-| `--output-worker` | Output worker filename. Default is `tpcc_worker.xml`. |
-| `--output-suites` | Output suite filename. Default is `fault-cases-generic.xml`. |
-| `--select` | Final selected fault cases. Supports keys, generated IDs, list numbers, or `all`. |
-| `--interactive` | Select final cases interactively. |
-| `--suite-name` | Final generated `testSuite` name. Default is `dbchaos-generated-suite`. |
-| `--planning-start-sec` | Start time of the first case. Default is 120 seconds. |
-| `--planning-step-sec` | Interval between cases. Default is 80 seconds. |
-| `--during-sec` | Duration of each case. Default is 60 seconds. |
-| `--worker-time` | Total worker run time. Default is `auto`. |
-| `--java-cmd` | Java command used by the upstream runner. Default is `/opt/java-21/bin/java`. |
-| `--jar-path` | DBChaos jar path on the upstream machine. Default is `scripts/java/DBChaos-0.0.1.jar`. |
-| `--agent` | Target agent such as `master:8000`. Repeatable. |
-| `--no-db-overrides` | Do not append `-url`, `-user`, and `-password` from the template. |
+| `--template-config` | OpenGauss TPC-C ChaosBlade 主配置模板。 |
+| `--template-worker` | TPC-C worker XML 模板。 |
+| `--template-suites` | `fault-cases-generic.xml` 模板。 |
+| `--output-dir` | 输出目录，默认是当前脚本所在目录。 |
+| `--output-config` | 输出主配置文件名，默认 `opengauss_tpcc_config_chaosblade.xml`。 |
+| `--output-worker` | 输出 worker 文件名，默认 `tpcc_worker.xml`。 |
+| `--output-suites` | 输出 suite 文件名，默认 `fault-cases-generic.xml`。 |
+| `--select` | 最终启用的故障点，支持 key、生成 ID、序号或 `all`。 |
+| `--interactive` | 交互式选择最终启用的故障点。 |
+| `--suite-name` | 生成的最终 `testSuite` 名称，默认 `dbchaos-generated-suite`。 |
+| `--planning-start-sec` | 第一个故障开始注入的时间点，默认 120 秒。 |
+| `--planning-step-sec` | 多个故障之间的注入间隔，默认 80 秒。 |
+| `--during-sec` | 每个故障持续时间，默认 60 秒。 |
+| `--worker-time` | worker 总运行时长，默认 `auto`。 |
+| `--java-cmd` | 上游执行 DBChaos 时使用的 Java 命令，默认 `/opt/java-21/bin/java`。 |
+| `--jar-path` | 上游机器上的 DBChaos jar 路径，默认 `scripts/java/DBChaos-0.0.1.jar`。 |
+| `--agent` | 注入目标 agent，例如 `master:8000`，可重复传入。 |
+| `--no-db-overrides` | 不把模板中的 `-url`、`-user`、`-password` 传给 DBChaos。 |
 
-## Supported Case Keys
+## 支持的故障 key
 
-| Key | Meaning |
+| key | 含义 |
 | --- | --- |
-| `plan_flip` | Query plan flip. |
-| `max_connection_conn_storm` | Connection storm. |
-| `max_connection_conn_exhaustion` | Connection exhaustion. |
-| `max_connection_thread_saturation` | Database thread pool saturation. |
-| `uncommitted_txn` | Long transaction lock holding. |
-| `duplicate_txn_update` | Hot-row update conflict. |
-| `duplicate_txn_insert` | Duplicate insert or unique conflict. |
-| `stack_overflow_func_recurse` | Function recursion stack overflow. |
-| `stack_overflow_proc_recurse` | Procedure recursion stack overflow. |
-| `stack_overflow_trans_recurse` | Transaction recursion stack overflow. |
-| `stack_overflow_sql_depth` | Deep SQL expression stack overflow. |
-| `stack_overflow_view_nest` | Nested view stack overflow. |
-| `stack_overflow_join_bomb` | Join search stress. |
-| `massive_rollback` | Massive transaction rollback. |
-| `memory_pressure` | Memory or buffer pressure through large payload inserts. |
-| `max_prepared` | Prepared transaction or XA prepare limit pressure. |
+| `plan_flip` | 执行计划跳变。 |
+| `max_connection_conn_storm` | 连接风暴。 |
+| `max_connection_conn_exhaustion` | 连接耗尽。 |
+| `max_connection_thread_saturation` | 数据库线程池饱和。 |
+| `uncommitted_txn` | 长事务持锁。 |
+| `duplicate_txn_update` | 热点行更新冲突。 |
+| `duplicate_txn_insert` | 重复插入或唯一约束冲突。 |
+| `stack_overflow_func_recurse` | 函数递归栈溢出。 |
+| `stack_overflow_proc_recurse` | 存储过程递归栈溢出。 |
+| `stack_overflow_trans_recurse` | 事务中的递归栈溢出。 |
+| `stack_overflow_sql_depth` | 超深 SQL 表达式。 |
+| `stack_overflow_view_nest` | 深度嵌套视图。 |
+| `stack_overflow_join_bomb` | 多表 join 搜索压力。 |
+| `massive_rollback` | 大规模事务回滚。 |
+| `memory_pressure` | 大对象写入引发的内存或缓冲压力。 |
+| `max_prepared` | Prepared Transaction 或 XA Prepare 上限挤兑。 |
 
-## JSON Selection File
+## JSON 选择文件
 
-You can also define the final suite in JSON:
+也可以把最终 suite 选择写成 JSON 文件：
 
 ```json
 {
@@ -108,9 +118,13 @@ You can also define the final suite in JSON:
 }
 ```
 
-Run with a JSON selection file:
+配合 JSON 文件执行：
 
 ```bash
 cd /home/baibh/DBChaos/scripts
-python3 generate_configs.py   --template-config "opengauss_tpccbbh_config_chaosblade.xml"   --template-worker "tpccbbh-worker.xml"   --template-suites "fault-cases-generic.xml"   --selection-file "selection.json"
+python3 generate_configs.py \
+  --template-config "opengauss_tpccbbh_config_chaosblade.xml" \
+  --template-worker "tpccbbh-worker.xml" \
+  --template-suites "fault-cases-generic.xml" \
+  --selection-file "selection.json"
 ```
