@@ -1,100 +1,102 @@
-# DBChaos ChaosBlade Config Generator
+# DBChaos Config Generator
 
-`scripts/generate_configs.py` ??? DBChaos ????????????? TPC-C ?????? ChaosBlade XML ???
+This directory contains `scripts/generate_configs.py`.
 
-?????????
+The script converts DBChaos fault injections into the XML files expected by the upstream TPC-C + ChaosBlade workflow.
 
-- `opengauss_tpcc_config_chaosblade.xml`????????? DBChaos `<faultCases>`?
-- `tpcc_worker.xml`?TPC-C worker ?????????? `testSuite`?
-- `fault-cases-generic.xml`?????????????`<testSuite>` ??????
+It generates three files:
 
-????????????????????????????
-??????????????????????? `.gitignore` ?????????????
+- `opengauss_tpcc_config_chaosblade.xml`: main config with all DBChaos `<faultCases>`.
+- `tpcc_worker.xml`: worker config that points to the selected `testSuite`.
+- `fault-cases-generic.xml`: final suite instance used during the TPC-C run.
 
-## ????
+If an output file does not exist, the script creates the file and its parent directory automatically.
+Generated XML may contain database connection settings inherited from the template, so these files are ignored by `.gitignore`.
 
-??? `scripts/` ??????
+## Quick Start
+
+Run from `scripts/`:
 
 ```bash
 cd /home/baibh/DBChaos/scripts
-python generate_configs.py --list
+python3 generate_configs.py --list
 ```
 
-???????????????????
+Run from the repository root:
 
 ```bash
 cd /home/baibh/DBChaos
-python scripts/generate_configs.py --list
+python3 scripts/generate_configs.py --list
 ```
 
-???? DBChaos ?????
+Generate all DBChaos cases:
 
 ```bash
 cd /home/baibh/DBChaos/scripts
-python generate_configs.py   --template-config "opengauss_tpccbbh_config_chaosblade.xml"   --template-worker "tpccbbh-worker.xml"   --template-suites "fault-cases-generic.xml"   --select all
+python3 generate_configs.py   --template-config "opengauss_tpccbbh_config_chaosblade.xml"   --template-worker "tpccbbh-worker.xml"   --template-suites "fault-cases-generic.xml"   --select all
 ```
 
-??????????
+Generate only selected cases:
 
 ```bash
 cd /home/baibh/DBChaos/scripts
-python generate_configs.py   --template-config "opengauss_tpccbbh_config_chaosblade.xml"   --template-worker "tpccbbh-worker.xml"   --template-suites "fault-cases-generic.xml"   --select plan_flip,memory_pressure,max_connection_conn_storm
+python3 generate_configs.py   --template-config "opengauss_tpccbbh_config_chaosblade.xml"   --template-worker "tpccbbh-worker.xml"   --template-suites "fault-cases-generic.xml"   --select plan_flip,memory_pressure,max_connection_conn_storm
 ```
 
-??????
+Interactive selection:
 
 ```bash
 cd /home/baibh/DBChaos/scripts
-python generate_configs.py   --template-config "opengauss_tpccbbh_config_chaosblade.xml"   --template-worker "tpccbbh-worker.xml"   --template-suites "fault-cases-generic.xml"   --interactive
+python3 generate_configs.py   --template-config "opengauss_tpccbbh_config_chaosblade.xml"   --template-worker "tpccbbh-worker.xml"   --template-suites "fault-cases-generic.xml"   --interactive
 ```
 
-## ????
+## Common Options
 
-| ?? | ?? |
+| Option | Meaning |
 | --- | --- |
-| `--template-config` | ?? OpenGauss TPC-C ChaosBlade ?????? |
-| `--template-worker` | ?? TPC-C worker XML ??? |
-| `--template-suites` | ?? `fault-cases-generic.xml` ??? |
-| `--output-dir` | ????????????? `scripts/`? |
-| `--output-config` | ??????????? `opengauss_tpcc_config_chaosblade.xml`? |
-| `--output-worker` | ?? worker ?????? `tpcc_worker.xml`? |
-| `--output-suites` | ?? suite ?????? `fault-cases-generic.xml`? |
-| `--select` | ???????????? key??? ID???? `all`? |
-| `--interactive` | ??????????????? |
-| `--suite-name` | ????? `testSuite` ????? `dbchaos-generated-suite`? |
-| `--planning-start-sec` | ???????????????? 120 ?? |
-| `--planning-step-sec` | ?????????????? 80 ?? |
-| `--during-sec` | ??????????? 60 ?? |
-| `--worker-time` | worker ???????? `auto`? |
-| `--java-cmd` | ???? DBChaos ???? Java ????? `/opt/java-21/bin/java`? |
-| `--jar-path` | ?????? DBChaos jar ????? `scripts/java/DBChaos-0.0.1.jar`? |
-| `--agent` | ???? agent??? `master:8000`??????? |
-| `--no-db-overrides` | ?????? `url/user/password` ?? DBChaos ??????? |
+| `--template-config` | OpenGauss TPC-C ChaosBlade config template. |
+| `--template-worker` | TPC-C worker XML template. |
+| `--template-suites` | `fault-cases-generic.xml` template. |
+| `--output-dir` | Output directory. Default is the current script directory. |
+| `--output-config` | Output config filename. Default is `opengauss_tpcc_config_chaosblade.xml`. |
+| `--output-worker` | Output worker filename. Default is `tpcc_worker.xml`. |
+| `--output-suites` | Output suite filename. Default is `fault-cases-generic.xml`. |
+| `--select` | Final selected fault cases. Supports keys, generated IDs, list numbers, or `all`. |
+| `--interactive` | Select final cases interactively. |
+| `--suite-name` | Final generated `testSuite` name. Default is `dbchaos-generated-suite`. |
+| `--planning-start-sec` | Start time of the first case. Default is 120 seconds. |
+| `--planning-step-sec` | Interval between cases. Default is 80 seconds. |
+| `--during-sec` | Duration of each case. Default is 60 seconds. |
+| `--worker-time` | Total worker run time. Default is `auto`. |
+| `--java-cmd` | Java command used by the upstream runner. Default is `/opt/java-21/bin/java`. |
+| `--jar-path` | DBChaos jar path on the upstream machine. Default is `scripts/java/DBChaos-0.0.1.jar`. |
+| `--agent` | Target agent such as `master:8000`. Repeatable. |
+| `--no-db-overrides` | Do not append `-url`, `-user`, and `-password` from the template. |
 
-## ??????? key
+## Supported Case Keys
 
-| key | ?? |
+| Key | Meaning |
 | --- | --- |
-| `plan_flip` | ??????? |
-| `max_connection_conn_storm` | ????? |
-| `max_connection_conn_exhaustion` | ????? |
-| `max_connection_thread_saturation` | ????????? |
-| `uncommitted_txn` | ?????? |
-| `duplicate_txn_update` | ???????? |
-| `duplicate_txn_insert` | ????/??????? |
-| `stack_overflow_func_recurse` | ???????? |
-| `stack_overflow_proc_recurse` | ?????????? |
-| `stack_overflow_trans_recurse` | ?????????? |
-| `stack_overflow_sql_depth` | ?? SQL ???? |
-| `stack_overflow_view_nest` | ??????? |
-| `stack_overflow_join_bomb` | ?? join ????? |
-| `massive_rollback` | ???????? |
-| `memory_pressure` | ?????????/????? |
-| `max_prepared` | Prepared Transaction / XA Prepare ????? |
+| `plan_flip` | Query plan flip. |
+| `max_connection_conn_storm` | Connection storm. |
+| `max_connection_conn_exhaustion` | Connection exhaustion. |
+| `max_connection_thread_saturation` | Database thread pool saturation. |
+| `uncommitted_txn` | Long transaction lock holding. |
+| `duplicate_txn_update` | Hot-row update conflict. |
+| `duplicate_txn_insert` | Duplicate insert or unique conflict. |
+| `stack_overflow_func_recurse` | Function recursion stack overflow. |
+| `stack_overflow_proc_recurse` | Procedure recursion stack overflow. |
+| `stack_overflow_trans_recurse` | Transaction recursion stack overflow. |
+| `stack_overflow_sql_depth` | Deep SQL expression stack overflow. |
+| `stack_overflow_view_nest` | Nested view stack overflow. |
+| `stack_overflow_join_bomb` | Join search stress. |
+| `massive_rollback` | Massive transaction rollback. |
+| `memory_pressure` | Memory or buffer pressure through large payload inserts. |
+| `max_prepared` | Prepared transaction or XA prepare limit pressure. |
 
-## JSON ????
+## JSON Selection File
 
-??????????? JSON?
+You can also define the final suite in JSON:
 
 ```json
 {
@@ -106,9 +108,9 @@ python generate_configs.py   --template-config "opengauss_tpccbbh_config_chaosbl
 }
 ```
 
-???
+Run with a JSON selection file:
 
 ```bash
 cd /home/baibh/DBChaos/scripts
-python generate_configs.py   --template-config "opengauss_tpccbbh_config_chaosblade.xml"   --template-worker "tpccbbh-worker.xml"   --template-suites "fault-cases-generic.xml"   --selection-file "selection.json"
+python3 generate_configs.py   --template-config "opengauss_tpccbbh_config_chaosblade.xml"   --template-worker "tpccbbh-worker.xml"   --template-suites "fault-cases-generic.xml"   --selection-file "selection.json"
 ```
