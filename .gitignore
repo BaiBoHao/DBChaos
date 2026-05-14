@@ -21,3 +21,5 @@ __pycache__/
 scripts/opengauss_tpcc_config_chaosblade.xml
 scripts/tpcc_worker.xml
 scripts/fault-cases-generic.xml
+
+DBChaos-0.0.1.jar
