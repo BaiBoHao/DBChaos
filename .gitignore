@@ -14,3 +14,10 @@ lib/
 .idea/
 *.class
 *.log
+__pycache__/
+*.pyc
+
+# Generated DBChaos/TPC-C bridge XML may contain runtime database connection details.
+scripts/opengauss_tpcc_config_chaosblade.xml
+scripts/tpcc_worker.xml
+scripts/fault-cases-generic.xml

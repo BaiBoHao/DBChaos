@@ -35,7 +35,7 @@ public class Main {
 
     private static final Set<String> FAULT_KEYWORDS = new HashSet<>(Arrays.asList(
         "plan_flip", "max_connection", "stack_overflow", "massive_rollback", 
-        "memory", "max_prepared", "uncommitted_txn", "duplicate_txn"
+        "memory", "memory_pressure", "max_prepared", "uncommitted_txn", "duplicate_txn"
     ));
 
     static {
@@ -61,8 +61,9 @@ public class Main {
         }
 
         
-        // 1. 帮助触发检查：无参数或包含 -h/--help
-        if (args.length == 0 || isHelpRequested(args)) {
+        // 1. 帮助触发检查：无参数或单独 -h/--help 显示全局帮助。
+        // 带故障画像的 -h/--help 交给具体 injector，便于输出画像级帮助。
+        if (args.length == 0 || (args.length == 1 && isHelpRequested(args))) {
             showFullHelp();
             return;
         }
@@ -142,7 +143,7 @@ public class Main {
         System.out.println(DIM + " Version: " + RESET + GREEN + version + RESET + 
                            DIM + " | License: " + RESET + "Apache 2.0" + 
                            DIM + " | Author: " + RESET + YELLOW + author + RESET);
-        System.out.println(CYAN + " " + "=".repeat(78) + RESET);
+        System.out.println(CYAN + " " + repeat("=", 78) + RESET);
     }
 
     private static void printUsage() {
@@ -165,13 +166,14 @@ public class Main {
 
     private static void printFaultTable() {
         System.out.printf(DIM + "  %-18s | %s\n" + RESET, "画像关键字 (ID)", "功能描述 (Description)");
-        System.out.println("  " + "-".repeat(60));
+        System.out.println("  " + repeat("-", 60));
         String[][] faults = {
             {"plan_flip", "执行计划跳变"},
             {"max_connection", "数据库最大连接数 (线程池饱和/连接耗尽)"},
             {"stack_overflow", "递归导致栈溢出"},
             {"massive_rollback", "大规模事务回滚"},
             {"memory_pressure", "数据库内存溢出或占用过高"},
+            {"max_prepared", "二阶段提交 Prepared Transaction 上限挤兑"},
             {"uncommitted_txn", "长事务导致的行锁持有故障"},
             {"duplicate_txn", "热点行高度并发冲突"}
         };
@@ -192,9 +194,14 @@ public class Main {
             // 爆栈
             case "stack_overflow": return new chaos.inject.StackOverflowInject(dbType);
             // 内存相关
+            case "memory":
             case "memory_pressure": return new chaos.inject.MemoryPressureFault(dbType);
+            // 二阶段提交 Prepared Transaction 上限
+            case "max_prepared": return new chaos.inject.MaxPreparedInject(dbType);
             // 事务不提交
             case "uncommitted_txn": return new chaos.inject.UncommittedTxnInject(dbType);
+            // 热点行重复事务/冲突
+            case "duplicate_txn": return new chaos.inject.DuplicateTxnInject(dbType);
             case "base": return new BaseFaultInject(dbType, "BASE") {
                 @Override public void execute(String[] args) { this.printHelp(); }
             };
@@ -208,5 +215,13 @@ public class Main {
             else if ("-user".equalsIgnoreCase(args[i])) BaseFaultInject.overrideUser = args[++i];
             else if ("-password".equalsIgnoreCase(args[i])) BaseFaultInject.overridePassword = args[++i];
         }
+    }
+
+    private static String repeat(String value, int count) {
+        StringBuilder builder = new StringBuilder(value.length() * count);
+        for (int i = 0; i < count; i++) {
+            builder.append(value);
+        }
+        return builder.toString();
     }
 }
