@@ -9,7 +9,31 @@
 - `fault-cases-generic.xml`：最终生效的不利注入实例，`<testSuite>` 在这里定义。
 
 如果输出目标文件不存在，脚本会自动创建目标文件以及父目录。
-生成出来的 XML 可能包含从模板继承来的数据库连接信息，所以这些输出文件默认被 `.gitignore` 忽略。
+如果传入的模板文件不存在，脚本也会自动初始化一个最小可用骨架，然后继续生成最终 XML。
+
+自动初始化行为如下：
+
+- `--template-config` 缺失时：自动生成主配置骨架，并优先从 `resources/db.properties` 读取 `type`、`url`、`user`、`password`。
+- `--template-worker` 缺失时：自动生成一个基础 `<works>` 结构。
+- `--template-suites` 缺失时：自动生成一个基础 `<testSuites>` 结构。
+
+生成出来的 XML 可能包含从模板或 `resources/db.properties` 继承来的数据库连接信息，所以这些输出文件默认被 `.gitignore` 忽略。
+
+## 为什么你刚才会报错
+
+你执行命令时人在 `/home/baibh/DBChaos/scripts`，但目录里并没有这三个模板文件：
+
+- `opengauss_tpccbbh_config_chaosblade.xml`
+- `tpccbbh-worker.xml`
+- `fault-cases-generic.xml`
+
+旧版本脚本会把它们当作“必须已经存在的输入模板”，因此在最前面就报：
+
+```text
+ERROR: template-config not found: opengauss_tpccbbh_config_chaosblade.xml
+```
+
+现在这个行为已经修复。模板缺失时，脚本会自动初始化，再继续生成。
 
 ## 快速开始
 
@@ -64,9 +88,9 @@ python3 generate_configs.py \
 
 | 参数 | 说明 |
 | --- | --- |
-| `--template-config` | OpenGauss TPC-C ChaosBlade 主配置模板。 |
-| `--template-worker` | TPC-C worker XML 模板。 |
-| `--template-suites` | `fault-cases-generic.xml` 模板。 |
+| `--template-config` | OpenGauss TPC-C ChaosBlade 主配置模板。缺失时自动生成默认骨架。 |
+| `--template-worker` | TPC-C worker XML 模板。缺失时自动生成默认骨架。 |
+| `--template-suites` | `fault-cases-generic.xml` 模板。缺失时自动生成默认骨架。 |
 | `--output-dir` | 输出目录，默认是当前脚本所在目录。 |
 | `--output-config` | 输出主配置文件名，默认 `opengauss_tpcc_config_chaosblade.xml`。 |
 | `--output-worker` | 输出 worker 文件名，默认 `tpcc_worker.xml`。 |

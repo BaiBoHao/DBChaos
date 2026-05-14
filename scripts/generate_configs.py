@@ -24,6 +24,7 @@ import argparse
 import json
 import sys
 import xml.etree.ElementTree as ET
+from configparser import ConfigParser
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
@@ -191,9 +192,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Generate DBChaos faultCases, tpcc_worker, and fault-cases-generic XML files."
     )
-    parser.add_argument("--template-config", type=Path, help="Existing opengauss TPC-C ChaosBlade config XML.")
-    parser.add_argument("--template-worker", type=Path, help="Existing tpcc worker XML.")
-    parser.add_argument("--template-suites", type=Path, help="Existing fault-cases-generic XML.")
+    parser.add_argument("--template-config", type=Path, help="OpenGauss TPC-C ChaosBlade config template. If missing, a default config skeleton is created.")
+    parser.add_argument("--template-worker", type=Path, help="TPC-C worker template. If missing, a default worker skeleton is created.")
+    parser.add_argument("--template-suites", type=Path, help="fault-cases-generic template. If missing, a default suite skeleton is created.")
     parser.add_argument("--output-dir", type=Path, default=Path(__file__).resolve().parent)
     parser.add_argument("--output-config", default=DEFAULT_OUTPUT_CONFIG)
     parser.add_argument("--output-worker", default=DEFAULT_OUTPUT_WORKER)
@@ -230,12 +231,10 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def require_path(path: Optional[Path], label: str) -> Path:
+def optional_path(path: Optional[Path], label: str) -> Optional[Path]:
     if path is None:
         raise SystemExit(f"ERROR: --{label} is required unless --list is used.")
-    if not path.exists():
-        raise SystemExit(f"ERROR: {label} not found: {path}")
-    return path
+    return path if path.exists() else None
 
 
 def read_selection_file(path: Optional[Path]) -> Dict[str, object]:
@@ -344,6 +343,88 @@ def parse_xml(path: Path) -> ET.ElementTree:
         return ET.parse(path)
     except ET.ParseError as exc:
         raise SystemExit(f"ERROR: invalid XML in {path}: {exc}") from exc
+
+
+def load_properties_file(path: Path) -> Dict[str, str]:
+    parser = ConfigParser()
+    parser.optionxform = str
+    parser.read_string("[root]\n" + path.read_text(encoding="utf-8"))
+    return dict(parser["root"])
+
+
+def infer_driver_from_db_type(db_type: str) -> str:
+    lower = db_type.lower()
+    if lower in ("opengauss", "og", "postgresql", "pg"):
+        return "org.postgresql.Driver"
+    if lower in ("mysql", "oceanbase", "ob"):
+        return "com.mysql.cj.jdbc.Driver"
+    return "org.postgresql.Driver"
+
+
+def normalize_jdbc_url(url: str, db_type: str) -> str:
+    stripped = (url or "").strip()
+    if not stripped:
+        return "jdbc:postgresql://localhost:15432/tpcc_100"
+    if db_type.lower() in ("opengauss", "og") and stripped.startswith("jdbc:opengauss://"):
+        return "jdbc:postgresql://" + stripped[len("jdbc:opengauss://"):]
+    return stripped
+
+
+def default_transaction_types() -> ET.Element:
+    node = ET.Element("transactiontypes")
+    for name in ("NewOrder", "Payment", "OrderStatus", "Delivery", "StockLevel"):
+        txn = ET.SubElement(node, "transactiontype")
+        txn.append(text_element("name", name))
+    return node
+
+
+def build_default_config_tree(template_path: Path, db_type_hint: Optional[str], worker_include_href: str) -> ET.ElementTree:
+    repo_root = Path(__file__).resolve().parents[1]
+    props = load_properties_file(repo_root / "resources" / "db.properties")
+    raw_db_type = (db_type_hint or props.get("type") or "opengauss").strip()
+    normalized_type = raw_db_type.upper()
+    jdbc_url = normalize_jdbc_url(props.get("url", ""), raw_db_type)
+
+    root = ET.Element("parameters")
+    root.append(text_element("type", normalized_type))
+    root.append(text_element("driver", infer_driver_from_db_type(raw_db_type)))
+    root.append(text_element("url", jdbc_url))
+    nodes = ET.SubElement(root, "nodes")
+    nodes.append(text_element("node", jdbc_url))
+    root.append(text_element("username", props.get("user", "benchmarksql")))
+    root.append(text_element("password", props.get("password", "BenchmarkSql@123")))
+    root.append(text_element("reconnectOnConnectionFailure", "true"))
+    root.append(text_element("isolation", "TRANSACTION_READ_COMMITTED"))
+    root.append(text_element("batchsize", "128"))
+    root.append(text_element("scalefactor", "10"))
+    root.append(text_element("data_cktype", "ONLY_SPECIAL"))
+    root.append(text_element("terminals", "16"))
+    root.append(ET.Element("faultCases"))
+    include = ET.Element(f"{{{XI_NS}}}include", {"href": worker_include_href, "parse": "xml"})
+    root.append(include)
+    root.append(default_transaction_types())
+    return ET.ElementTree(root)
+
+
+def load_or_create_config_tree(template_path: Optional[Path], db_type_hint: Optional[str], worker_include_href: str) -> ET.ElementTree:
+    if template_path is None:
+        print("INFO: template-config not found; bootstrapping default config from resources/db.properties")
+        return build_default_config_tree(Path(DEFAULT_OUTPUT_CONFIG), db_type_hint, worker_include_href)
+    return parse_xml(template_path)
+
+
+def load_or_create_worker_tree(template_path: Optional[Path]) -> ET.ElementTree:
+    if template_path is None:
+        print("INFO: template-worker not found; bootstrapping default worker skeleton")
+        return ET.ElementTree(ET.Element("works"))
+    return parse_xml(template_path)
+
+
+def load_or_create_suites_tree(template_path: Optional[Path]) -> ET.ElementTree:
+    if template_path is None:
+        print("INFO: template-suites not found; bootstrapping default suite skeleton")
+        return ET.ElementTree(ET.Element("testSuites"))
+    return parse_xml(template_path)
 
 
 def indent_xml(root: ET.Element) -> None:
@@ -516,7 +597,7 @@ def compute_worker_time(
 
 
 def build_worker_tree(
-    template_worker: Path,
+    template_worker: Optional[Path],
     suite_name: str,
     selected: Sequence[FaultSpec],
     planning_start_sec: int,
@@ -527,7 +608,7 @@ def build_worker_tree(
     worker_weights: Optional[str],
     worker_arrival: Optional[str],
 ) -> ET.ElementTree:
-    tree = parse_xml(template_worker)
+    tree = load_or_create_worker_tree(template_worker)
     root = tree.getroot()
     if root.tag != "works":
         raise SystemExit(f"ERROR: worker XML root must be <works>, got <{root.tag}>.")
@@ -556,14 +637,14 @@ def build_suite_case(spec: FaultSpec, planning: int, during: int) -> ET.Element:
 
 
 def build_suites_tree(
-    template_suites: Path,
+    template_suites: Optional[Path],
     suite_name: str,
     selected: Sequence[FaultSpec],
     planning_start_sec: int,
     planning_step_sec: int,
     during_sec: int,
 ) -> ET.ElementTree:
-    tree = parse_xml(template_suites)
+    tree = load_or_create_suites_tree(template_suites)
     root = tree.getroot()
     if root.tag != "testSuites":
         raise SystemExit(f"ERROR: suites XML root must be <testSuites>, got <{root.tag}>.")
@@ -609,12 +690,12 @@ def run(args: argparse.Namespace) -> int:
     selection_settings = read_selection_file(args.selection_file)
     apply_selection_file(args, selection_settings)
 
-    template_config = require_path(args.template_config, "template-config")
-    template_worker = require_path(args.template_worker, "template-worker")
-    template_suites = require_path(args.template_suites, "template-suites")
+    template_config = optional_path(args.template_config, "template-config")
+    template_worker = optional_path(args.template_worker, "template-worker")
+    template_suites = optional_path(args.template_suites, "template-suites")
 
     selected = resolve_selection(args.select, args.interactive)
-    config_tree = parse_xml(template_config)
+    config_tree = load_or_create_config_tree(template_config, args.db_type, args.worker_include_href)
     config_root = config_tree.getroot()
     if config_root.tag != "parameters":
         raise SystemExit(f"ERROR: config XML root must be <parameters>, got <{config_root.tag}>.")
