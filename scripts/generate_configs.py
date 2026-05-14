@@ -11,7 +11,7 @@ The generator writes three files:
      Contains the final selected testSuite instance.
 
 Example:
-  python scripts/generate_chaosblade_configs.py \
+  python scripts/generate_configs.py \
     --template-config "/path/to/opengauss_tpccbbh_config_chaosblade.xml" \
     --template-worker "/path/to/tpccbbh-worker.xml" \
     --template-suites "/path/to/fault-cases-generic.xml" \
@@ -367,8 +367,14 @@ def indent_xml(root: ET.Element) -> None:
     _indent(root)
 
 
-def write_xml(tree: ET.ElementTree, path: Path) -> None:
+def ensure_output_file(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        path.touch()
+
+
+def write_xml(tree: ET.ElementTree, path: Path) -> None:
+    ensure_output_file(path)
     indent_xml(tree.getroot())
     tree.write(path, encoding="utf-8", xml_declaration=True, short_empty_elements=False)
 
