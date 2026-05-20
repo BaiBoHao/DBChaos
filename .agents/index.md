@@ -28,3 +28,4 @@
 - [README UTF-8 Chinese rewrite](20260514T153455-readme-utf8-chinese.md) - Rewrote `scripts/README.md` in Chinese with verified UTF-8 encoding using byte-safe remote write.
 - [Template auto-bootstrap](20260514T154137-template-autobootstrap.md) - Updated `generate_configs.py` to auto-initialize missing template files instead of failing immediately.
 - [Merge 20260514 into main](20260520T173656-merge-20260514-into-main.md) - Merged the 20260514 branch work into main while preserving main's root README and lib deletion state.
+- [Finalize main merge](20260520T174220-finalize-main-merge.md) - Integrated the latest remote main updates after merging 20260514 and completed validation before pushing main.
