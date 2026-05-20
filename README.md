@@ -1,69 +1,135 @@
-# DBChaos: 基于内核原语构造的数据库韧性故障画像工具
-
+# DBChaos: 基于数据库内核原语构造的不利注入工具
 
 ![](./static/licensed-image.jpg)
 
+## 1. 项目定位
 
-## 1. 项目定位 (Project Positioning)
-**DBChaos** 是一款专为分布式数据库与云原生数据库设计的韧性测试与故障画像（Fault Profiling）工具。不同于传统的仅通过外部高并发请求模拟负载的工具，DBChaos 深入数据库**内核原语**层级，通过**内核机制诱导**技术，精准触发数据库内部的逻辑边界与性能拐点。
+**DBChaos** 是一款面向数据库系统的**不利注入工具**。  
+它不是单纯从业务侧叠加压力，而是从数据库**内核子系统**出发，主动构造连接、优化、执行、事务、存储、日志等路径上的不利条件，用来探测数据库系统的**韧性边界**与**韧性能力**。
 
-该工具旨在帮助架构师与 DBA 评估数据库在极端并发、资源挤兑及逻辑异常情况下的**自愈能力（Self-healing）**与**隔离韧性（Isolation Resilience）**。
+换句话说，DBChaos 关注的问题是：
 
----
-
-## 2. 核心技术亮点 (Technical Highlights)
-* **机制级故障触发 (Mechanism-level Injection)**：通过动态干预 `autovacuum` 阈值、修改执行计划代价模型参数等手段，诱导数据库产生非预期的后台任务或计划跳变。
-* **跨语系语法泛化 (Multi-dialect Adaptation)**：底层封装了一套标准的故障注入接口，完美适配 PostgreSQL、openGauss 及 MySQL (OceanBase) 等主流数据库语系。
-* **震荡式画像构造 (Oscillation Profiling)**：支持周期性地在“稳定态”与“故障态”之间切换，用于观测系统在持续扰动下的性能收敛特征。
-* **智能体式交互体验 (Agent-style CLI)**：具备彩色终端输出与实时内核状态监测功能，提供直观的故障生效证据链。
+- 数据库在异常压力或机制扰动下会在哪里失稳
+- 数据库是否还能维持服务、退化运行或自动恢复
+- 数据库不同内核子系统之间的隔离性、恢复性和抗压能力如何
 
 ---
 
-## 3. 故障画像目录 (Fault Taxonomy)
+## 2. 工具特点
 
-| 分类 | 故障画像 (Fault Profile) | 技术原理 (Technical Principle) |
-| :--- | :--- | :--- |
-| **查询优化器** | `plan_flip` | 通过注入偏斜数据并诱导 `autovacuum` 自动执行，强制触发执行计划从 Index Scan 向 Seq Scan 跳变。 |
-| **并发与锁** | `uncommitted_txn` | 构造长事务持有行级排他锁（X-Lock），配合 `statement_timeout` 模拟高并发下的锁挤兑场景。 |
-| **并发与锁** | `duplicate_txn` | 在热点行（Hot Row）上构造极高频次的并发写冲突，探测死锁检测器与锁管理器的响应边界。 |
-| **执行分配** | `stack_overflow` | 诱导内核函数或存储过程进行深度递归，挑战 `max_stack_depth` 限制以触发内核级异常。 |
-| **资源限制** | `max_conn` / `max_prepared` | 挤兑连接数上限及二阶段提交（2PC）预处理上限，模拟连接风暴与分布式事务挂起。 |
-| **资源压力** | `memory` / `massive_rollback` | 注入大规模内存占用请求或频繁触发事务回滚，观测 Undo Log/WAL 日志及 Buffer Pool 的抗压能力。 |
+- **内核子系统视角**：不利点围绕数据库连接、SQL 编译、执行、事务、存储、日志等核心路径组织。
+- **机制级注入**：通过 SQL、事务、连接和资源占用等方式诱发数据库内部机制变化，而不是只从外部施压。
+- **多语系适配**：当前实现面向 openGauss、PostgreSQL 及 MySQL 兼容语系。
+- **适合压测联动**：可与 TPC-C 等基准测试联动，在业务负载运行期间注入不利并观察系统行为变化。
 
 ---
 
-## 4. 系统架构 (Architecture)
-项目采用解耦的**插件化架构**设计：
-* **Core 层**：负责全局配置加载（`db.properties`）、多驱动适配及 JDBC 会话池管理。
-* **Inject 层**：通过继承 `BaseFaultInject` 实现具体的故障逻辑，支持独立的参数解析与指标采集。
-* **UI/CLI 层**：基于 `chaos.properties` 进行元数据驱动展示，支持 ANSI 彩色高亮与欢迎横幅。
+## 3. 当前已覆盖的内核子系统
 
+DBChaos 当前按如下数据库内核子系统组织不利能力：
 
+- 连接与会话管理
+- SQL 编译与优化
+- 执行引擎与运行时
+- 事务与并发控制
+- 存储引擎与缓冲管理
+- 日志、检查点与崩溃恢复
+- 后台维护与系统任务
+- 资源治理与系统配额
+
+其中，当前已经有落地不利 Case 的主要是前六类。
 
 ---
 
-## 5. 快速开始 (Getting Started)
+## 4. 当前已实现的不利 Case
+
+### 连接与会话管理
+
+- **连接风暴**：`max_connection / conn_storm`
+- **连接耗尽**：`max_connection / conn_exhaustion`
+- **会话执行线程池饱和**：`max_connection / thread_saturation`
+
+### SQL 编译与优化
+
+- **执行计划翻转**：`plan_flip`
+- **深层表达式解析膨胀**：`stack_overflow / sql_depth`
+- **视图展开深度膨胀**：`stack_overflow / view_nest`
+- **Join 搜索空间爆炸**：`stack_overflow / join_bomb`
+
+### 执行引擎与运行时
+
+- **函数递归执行栈溢出**：`stack_overflow / func_recurse`
+- **存储过程递归执行栈溢出**：`stack_overflow / proc_recurse`
+- **事务路径递归执行栈溢出**：`stack_overflow / trans_recurse`
+
+### 事务与并发控制
+
+- **长事务持锁**：`uncommitted_txn`
+- **热点更新冲突**：`duplicate_txn / UPDATE`
+- **重复插入唯一性冲突**：`duplicate_txn / INSERT`
+- **Prepared/XA 事务积压**：`max_prepared`
+
+### 存储引擎与缓冲管理
+
+- **大对象写入缓冲挤压**：`memory_pressure`
+
+### 日志、检查点与崩溃恢复
+
+- **高频事务回滚风暴**：`massive_rollback`
+
+---
+
+## 5. 系统结构
+
+项目当前由三部分组成：
+
+- **Core 层**：负责配置加载、数据库类型适配与 JDBC 连接基础能力
+- **Inject 层**：每个不利 Case 对应一个具体注入实现
+- **CLI / Script 层**：负责命令行入口、帮助信息以及与外部压测/配置脚本的联动
+
+---
+
+## 6. 快速开始
 
 ### 环境依赖
-* JDK 1.8+
-* Maven 3.6+
-* 目标数据库: openGauss, PostgreSQL 或 MySQL 兼容引擎
+
+- JDK 1.8+
+- Maven 3.6+
+- 目标数据库：openGauss、PostgreSQL 或 MySQL 兼容引擎
 
 ### 构建项目
-使用内置脚本进行自动化构建：
+
 ```bash
 chmod +x build.sh
 ./build.sh DBChaos
 ```
 
-### 启动注入
-以 **openGauss** 上的执行计划跳变故障为例：
+### 查看当前支持的不利入口
+
 ```bash
-java -jar DBChaos.jar opengauss plan_flip -threads 16 -duration 300000 -interval 60000
+java -jar DBChaos-0.0.1.jar --help
+```
+
+### 执行一个不利注入
+
+以 openGauss 上的执行计划翻转为例：
+
+```bash
+java -jar DBChaos-0.0.1.jar opengauss plan_flip -threads 16 -duration 300000 -interval 60000
 ```
 
 ---
 
-## 6. 开发者 (Developer)
-* **Author**: 西北工业大学
-* **Project**: resilienceChaos
+## 7. 与压测联动
+
+如果需要在 TPC-C 或其他基准测试运行期间注入不利，可以结合 `scripts/` 下的配置生成脚本使用。  
+相关说明见：
+
+- [scripts/README.md](./scripts/README.md)
+
+---
+
+## 8. 开发者
+
+- **Author**: 西北工业大学
+- **Project**: DBChaos
