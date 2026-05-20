@@ -5,7 +5,7 @@
 - Project root: `E:\DBChaos`
 - Project UUID: `27f12b1d-6d86-4c59-a60b-509583178478`
 - Main branch: `main`
-- Current working branch: `main`
+- Current working branch: `20260520`
 - Related project indexes: none recorded
 
 ## Reading Rules
@@ -29,3 +29,4 @@
 - [Template auto-bootstrap](20260514T154137-template-autobootstrap.md) - Updated `generate_configs.py` to auto-initialize missing template files instead of failing immediately.
 - [Merge 20260514 into main](20260520T173656-merge-20260514-into-main.md) - Merged the 20260514 branch work into main while preserving main's root README and lib deletion state.
 - [Finalize main merge](20260520T174220-finalize-main-merge.md) - Integrated the latest remote main updates after merging 20260514 and completed validation before pushing main.
+- [Local branch 20260520 setup](20260520T220130-local-branch-20260520.md) - Created local branch `20260520` from the latest local main so subsequent work can continue in the E drive checkout.
