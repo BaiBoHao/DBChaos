@@ -35,3 +35,4 @@
 - [Windows build helper draft](20260521T000100-win-build-helper-draft.md) - Added a local `build_for_win.sh` helper to compile, package, and preview the CLI help output on Windows.
 - [Subsystem command model draft](20260521T002020-subsystem-command-model-draft.md) - Switched the local CLI draft to `[--db <DB_TYPE>] <SUBSYSTEM> <CASE>` and aligned help, docs, and config generation around the new command model.
 - [CLI subsystem final draft](20260521T115025-cli-subsystem-final-draft.md) - Finalized the local draft around subsystem-first CLI, cleaner help text, and Windows local build helpers before commit.
+- [Config generator defaults draft](20260521T121420-config-generator-defaults-draft.md) - Simplified `generate_configs.py` around built-in template/output defaults, removed JSON selection flow, and verified local Python execution.

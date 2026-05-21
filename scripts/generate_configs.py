@@ -7,21 +7,18 @@ The generator writes three files:
      Contains all DBChaos fault cases under <faultCases>.
   2. tpcc_worker.xml
      Points the worker phase at the selected testSuite.
-  3. fault-cases-generic.xml
+  3. fault-cases-generated.xml
      Contains the final selected testSuite instance.
 
 Example:
-  python scripts/generate_configs.py \
-    --template-config "/path/to/opengauss_tpccbbh_config_chaosblade.xml" \
-    --template-worker "/path/to/tpccbbh-worker.xml" \
-    --template-suites "/path/to/fault-cases-generic.xml" \
-    --select plan_flip,max_connection_conn_storm,memory_pressure
+  python scripts/generate_configs.py --interactive
+  python scripts/generate_configs.py --select all
+  python scripts/generate_configs.py --select plan_flip,max_connection_conn_storm,memory_pressure
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 import xml.etree.ElementTree as ET
 from configparser import ConfigParser
@@ -29,12 +26,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
-
 XI_NS = "http://www.w3.org/2001/XInclude"
 ET.register_namespace("xi", XI_NS)
 
-DEFAULT_OUTPUT_CONFIG = "opengauss_tpcc_config_chaosblade.xml"
-DEFAULT_OUTPUT_WORKER = "tpcc_worker.xml"
+SCRIPT_DIR = Path(__file__).resolve().parent
+DEFAULT_TEMPLATE_CONFIG = "opengauss_tpccbbh_config_chaosblade.xml"
+DEFAULT_TEMPLATE_WORKER = "tpccbbh-worker.xml"
+DEFAULT_TEMPLATE_SUITES = "fault-cases-generic.xml"
+DEFAULT_OUTPUT_CONFIG = "opengauss_dbchaosTpcc_config_chaosblade.xml"
+DEFAULT_OUTPUT_WORKER = "dbchaosTpcc_worker.xml"
 DEFAULT_OUTPUT_SUITES = "fault-cases-generic.xml"
 DEFAULT_SUITE_NAME = "dbchaos-generated-suite"
 DEFAULT_SELECTED_CASE_KEYS: Tuple[str, ...] = ("all",)
@@ -224,18 +224,23 @@ FAULT_BY_ID: Dict[int, FaultSpec] = {spec.id: spec for spec in FAULT_SPECS}
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Generate DBChaos faultCases, tpcc_worker, and fault-cases-generic XML files."
+        description="Generate TPC-C + ChaosBlade XML files for DBChaos."
     )
-    parser.add_argument("--template-config", type=Path, help="OpenGauss TPC-C ChaosBlade config template. If missing, a default config skeleton is created.")
-    parser.add_argument("--template-worker", type=Path, help="TPC-C worker template. If missing, a default worker skeleton is created.")
-    parser.add_argument("--template-suites", type=Path, help="fault-cases-generic template. If missing, a default suite skeleton is created.")
-    parser.add_argument("--output-dir", type=Path, default=Path(__file__).resolve().parent)
-    parser.add_argument("--output-config", default=DEFAULT_OUTPUT_CONFIG)
-    parser.add_argument("--output-worker", default=DEFAULT_OUTPUT_WORKER)
-    parser.add_argument("--output-suites", default=DEFAULT_OUTPUT_SUITES)
-    parser.add_argument("--worker-include-href", default=DEFAULT_OUTPUT_WORKER)
+    parser.add_argument("--template-config", type=Path, default=None, help="Advanced: override config template path.")
+    parser.add_argument("--template-worker", type=Path, default=None, help="Advanced: override worker template path.")
+    parser.add_argument("--template-suites", type=Path, default=None, help="Advanced: override suite template path.")
+    parser.add_argument("--output-dir", type=Path, default=SCRIPT_DIR, help="Advanced: override output directory.")
+    parser.add_argument("--output-config", default=DEFAULT_OUTPUT_CONFIG,
+                        help="Advanced: override output config filename.")
+    parser.add_argument("--output-worker", default=DEFAULT_OUTPUT_WORKER,
+                        help="Advanced: override output worker filename.")
+    parser.add_argument("--output-suites", default=DEFAULT_OUTPUT_SUITES,
+                        help="Advanced: override output suite filename.")
+    parser.add_argument("--worker-include-href", default=None,
+                        help="Advanced: override xi:include href for the worker file.")
 
-    parser.add_argument("--db-type", default=None, help="DBChaos DB type argument. Defaults to template <type>.")
+    parser.add_argument("--db-type", default=None,
+                        help="Override DBChaos database type. Defaults to resources/db.properties:type.")
     parser.add_argument("--java-cmd", default="/opt/java-21/bin/java")
     parser.add_argument("--jar-path", default="scripts/java/DBChaos-0.0.1.jar")
     parser.add_argument("--agent", action="append", help="Target agent endpoint. Can be repeated.")
@@ -247,7 +252,6 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Comma-separated keys, generated IDs, list numbers, or all. Prefix with '-' to exclude from all.",
     )
-    parser.add_argument("--selection-file", type=Path, help="JSON file with optional cases/suite/timing settings.")
     parser.add_argument("--interactive", action="store_true", help="Interactively choose the final testSuite cases.")
 
     parser.add_argument("--planning-start-sec", type=int, default=120)
@@ -259,26 +263,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Worker time in seconds, or auto to fit the selected suite.",
     )
     parser.add_argument("--worker-rate", default=None, help="Override worker <rate>; defaults to worker template.")
-    parser.add_argument("--worker-weights", default=None, help="Override worker <weights>; defaults to worker template.")
-    parser.add_argument("--worker-arrival", default=None, help="Override work arrival attr; defaults to worker template.")
+    parser.add_argument("--worker-weights", default=None,
+                        help="Override worker <weights>; defaults to worker template.")
+    parser.add_argument("--worker-arrival", default=None,
+                        help="Override work arrival attr; defaults to worker template.")
     parser.add_argument("--list", action="store_true", help="List known DBChaos fault cases and exit.")
     return parser
 
 
-def optional_path(path: Optional[Path], label: str) -> Optional[Path]:
-    if path is None:
-        raise SystemExit(f"ERROR: --{label} is required unless --list is used.")
-    return path if path.exists() else None
-
-
-def read_selection_file(path: Optional[Path]) -> Dict[str, object]:
-    if path is None:
-        return {}
-    with path.open("r", encoding="utf-8") as f:
-        data = json.load(f)
-    if not isinstance(data, dict):
-        raise SystemExit("ERROR: selection file must be a JSON object.")
-    return data
+def resolve_template_path(path: Optional[Path], default_name: str) -> Optional[Path]:
+    candidate = path if path is not None else (SCRIPT_DIR / default_name)
+    return candidate if candidate.exists() else None
 
 
 def print_fault_catalog() -> None:
@@ -412,7 +407,8 @@ def default_transaction_types() -> ET.Element:
     return node
 
 
-def build_default_config_tree(template_path: Path, db_type_hint: Optional[str], worker_include_href: str) -> ET.ElementTree:
+def build_default_config_tree(template_path: Path, db_type_hint: Optional[str],
+                              worker_include_href: str) -> ET.ElementTree:
     repo_root = Path(__file__).resolve().parents[1]
     props = load_properties_file(repo_root / "resources" / "db.properties")
     raw_db_type = (db_type_hint or props.get("type") or "opengauss").strip()
@@ -440,7 +436,8 @@ def build_default_config_tree(template_path: Path, db_type_hint: Optional[str], 
     return ET.ElementTree(root)
 
 
-def load_or_create_config_tree(template_path: Optional[Path], db_type_hint: Optional[str], worker_include_href: str) -> ET.ElementTree:
+def load_or_create_config_tree(template_path: Optional[Path], db_type_hint: Optional[str],
+                               worker_include_href: str) -> ET.ElementTree:
     if template_path is None:
         print("INFO: template-config not found; bootstrapping default config from resources/db.properties")
         return build_default_config_tree(Path(DEFAULT_OUTPUT_CONFIG), db_type_hint, worker_include_href)
@@ -530,12 +527,12 @@ def db_override_args(config_root: ET.Element, enabled: bool) -> Tuple[str, ...]:
 
 
 def build_fault_case_element(
-    spec: FaultSpec,
-    agents: Sequence[str],
-    java_cmd: str,
-    jar_path: str,
-    db_type: str,
-    extra_db_args: Sequence[str],
+        spec: FaultSpec,
+        agents: Sequence[str],
+        java_cmd: str,
+        jar_path: str,
+        db_type: str,
+        extra_db_args: Sequence[str],
 ) -> ET.Element:
     case = ET.Element("case")
     case.append(text_element("id", spec.id))
@@ -557,14 +554,14 @@ def build_fault_case_element(
 
 
 def replace_fault_cases(
-    config_tree: ET.ElementTree,
-    specs: Sequence[FaultSpec],
-    agents: Sequence[str],
-    java_cmd: str,
-    jar_path: str,
-    db_type: str,
-    include_db_overrides: bool,
-    worker_include_href: str,
+        config_tree: ET.ElementTree,
+        specs: Sequence[FaultSpec],
+        agents: Sequence[str],
+        java_cmd: str,
+        jar_path: str,
+        db_type: str,
+        include_db_overrides: bool,
+        worker_include_href: str,
 ) -> None:
     root = config_tree.getroot()
     db_args = db_override_args(root, include_db_overrides)
@@ -606,21 +603,21 @@ def template_child_text(template: Optional[ET.Element], tag: str, fallback: str)
 
 
 def selected_suite_end_sec(
-    selected: Sequence[FaultSpec],
-    planning_start_sec: int,
-    planning_step_sec: int,
-    during_sec: int,
+        selected: Sequence[FaultSpec],
+        planning_start_sec: int,
+        planning_step_sec: int,
+        during_sec: int,
 ) -> int:
     last_planning = planning_start_sec + (len(selected) - 1) * planning_step_sec
     return last_planning + during_sec
 
 
 def compute_worker_time(
-    worker_time: str,
-    selected: Sequence[FaultSpec],
-    planning_start_sec: int,
-    planning_step_sec: int,
-    during_sec: int,
+        worker_time: str,
+        selected: Sequence[FaultSpec],
+        planning_start_sec: int,
+        planning_step_sec: int,
+        during_sec: int,
 ) -> int:
     if worker_time.lower() != "auto":
         try:
@@ -631,16 +628,16 @@ def compute_worker_time(
 
 
 def build_worker_tree(
-    template_worker: Optional[Path],
-    suite_name: str,
-    selected: Sequence[FaultSpec],
-    planning_start_sec: int,
-    planning_step_sec: int,
-    during_sec: int,
-    worker_time: str,
-    worker_rate: Optional[str],
-    worker_weights: Optional[str],
-    worker_arrival: Optional[str],
+        template_worker: Optional[Path],
+        suite_name: str,
+        selected: Sequence[FaultSpec],
+        planning_start_sec: int,
+        planning_step_sec: int,
+        during_sec: int,
+        worker_time: str,
+        worker_rate: Optional[str],
+        worker_weights: Optional[str],
+        worker_arrival: Optional[str],
 ) -> ET.ElementTree:
     tree = load_or_create_worker_tree(template_worker)
     root = tree.getroot()
@@ -671,12 +668,12 @@ def build_suite_case(spec: FaultSpec, planning: int, during: int) -> ET.Element:
 
 
 def build_suites_tree(
-    template_suites: Optional[Path],
-    suite_name: str,
-    selected: Sequence[FaultSpec],
-    planning_start_sec: int,
-    planning_step_sec: int,
-    during_sec: int,
+        template_suites: Optional[Path],
+        suite_name: str,
+        selected: Sequence[FaultSpec],
+        planning_start_sec: int,
+        planning_step_sec: int,
+        during_sec: int,
 ) -> ET.ElementTree:
     tree = load_or_create_suites_tree(template_suites)
     root = tree.getroot()
@@ -695,41 +692,18 @@ def build_suites_tree(
     return tree
 
 
-def apply_selection_file(args: argparse.Namespace, settings: Dict[str, object]) -> None:
-    if "suite_name" in settings and args.suite_name == DEFAULT_SUITE_NAME:
-        args.suite_name = str(settings["suite_name"])
-    if "cases" in settings and args.select is None:
-        cases = settings["cases"]
-        if not isinstance(cases, list):
-            raise SystemExit("ERROR: selection file 'cases' must be a list.")
-        args.select = ",".join(str(item) for item in cases)
-    for attr, key in (
-        ("planning_start_sec", "planning_start_sec"),
-        ("planning_step_sec", "planning_step_sec"),
-        ("during_sec", "during_sec"),
-        ("worker_time", "worker_time"),
-        ("worker_rate", "worker_rate"),
-        ("worker_weights", "worker_weights"),
-        ("worker_arrival", "worker_arrival"),
-    ):
-        if key in settings and getattr(args, attr) == build_parser().get_default(attr):
-            setattr(args, attr, settings[key])
-
-
 def run(args: argparse.Namespace) -> int:
     if args.list:
         print_fault_catalog()
         return 0
 
-    selection_settings = read_selection_file(args.selection_file)
-    apply_selection_file(args, selection_settings)
-
-    template_config = optional_path(args.template_config, "template-config")
-    template_worker = optional_path(args.template_worker, "template-worker")
-    template_suites = optional_path(args.template_suites, "template-suites")
+    template_config = resolve_template_path(args.template_config, DEFAULT_TEMPLATE_CONFIG)
+    template_worker = resolve_template_path(args.template_worker, DEFAULT_TEMPLATE_WORKER)
+    template_suites = resolve_template_path(args.template_suites, DEFAULT_TEMPLATE_SUITES)
 
     selected = resolve_selection(args.select, args.interactive)
-    config_tree = load_or_create_config_tree(template_config, args.db_type, args.worker_include_href)
+    worker_include_href = args.worker_include_href or args.output_worker
+    config_tree = load_or_create_config_tree(template_config, args.db_type, worker_include_href)
     config_root = config_tree.getroot()
     if config_root.tag != "parameters":
         raise SystemExit(f"ERROR: config XML root must be <parameters>, got <{config_root.tag}>.")
@@ -745,7 +719,7 @@ def run(args: argparse.Namespace) -> int:
         jar_path=args.jar_path,
         db_type=db_type,
         include_db_overrides=not args.no_db_overrides,
-        worker_include_href=args.worker_include_href,
+        worker_include_href=worker_include_href,
     )
 
     worker_tree = build_worker_tree(
@@ -779,6 +753,9 @@ def run(args: argparse.Namespace) -> int:
     write_xml(worker_tree, worker_out)
     write_xml(suites_tree, suites_out)
 
+    print(f"Template config: {template_config or '[bootstrapped default]'}")
+    print(f"Template worker: {template_worker or '[bootstrapped default]'}")
+    print(f"Template suites: {template_suites or '[bootstrapped default]'}")
     print(f"Wrote config: {config_out}")
     print(f"Wrote worker: {worker_out}")
     print(f"Wrote suites: {suites_out}")
