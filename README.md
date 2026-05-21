@@ -110,12 +110,14 @@ chmod +x build.sh
 java -jar DBChaos-0.0.1.jar --help
 ```
 
+如果未显式传入 `--db`，默认读取 `resources/db.properties` 中的 `type`。
+
 ### 执行一个不利注入
 
 以 openGauss 上的执行计划翻转为例：
 
 ```bash
-java -jar DBChaos-0.0.1.jar opengauss plan_flip -threads 16 -duration 300000 -interval 60000
+java -jar DBChaos-0.0.1.jar --db opengauss sql plan_flip -threads 16 -duration 300000 -interval 60000
 ```
 
 ---

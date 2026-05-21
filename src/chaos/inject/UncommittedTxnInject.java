@@ -87,7 +87,7 @@ public class UncommittedTxnInject extends BaseFaultInject {
 
     @Override
     public void printHelp() {
-        System.out.println("\n" + BOLD + "故障画像用法: " + YELLOW + "uncommitted_txn" + RESET);
+        System.out.println("\n" + BOLD + "不利 Case 用法: " + YELLOW + "txn uncommitted_txn" + RESET);
         System.out.println("  模拟业务中未提交的长事务，通过对指定表记录加锁，制造锁冲突，测试系统的并发处理与韧性。");
         System.out.println("\n" + BOLD + "参数列表:" + RESET);
         System.out.printf("  %-15s %s\n", "-duration", "必填。故障持有锁的时长 (ms)");
@@ -95,7 +95,7 @@ public class UncommittedTxnInject extends BaseFaultInject {
         System.out.printf("  %-15s %s\n", "-holders", "选填。持锁并发线程数 (默认 2)");
         System.out.printf("  %-15s %s\n", "-rows", "选填。每个线程在每个表上锁定的行数 (默认 500)");
         System.out.println("\n" + BOLD + "示例:" + RESET);
-        System.out.println(CYAN + "  ... uncommitted_txn -duration 60000 -table bmsql_stock -holders 2 -rows 500" + RESET);
+        System.out.println(CYAN + "  java -jar DBChaos-0.0.1.jar --db opengauss txn uncommitted_txn -duration 60000 -table bmsql_stock -holders 2 -rows 500" + RESET);
     }
 
     private void startHolder(List<String> tableNames, int id, int rows) {

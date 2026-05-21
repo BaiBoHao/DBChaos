@@ -112,14 +112,14 @@ public class MaxConnectionInject extends BaseFaultInject {
     // 专门为该画像准备的精简说明书
     @Override
     public void printHelp() {
-        System.out.println("\n\u001B[1m故障画像用法: \u001B[33mmax_connection\u001B[0m");
-        System.out.println("  该故障用于模拟连接挤兑。");
+        System.out.println("\n\u001B[1m不利 Case 用法: \u001B[33msession max_connection\u001B[0m");
+        System.out.println("  该 Case 用于模拟连接挤兑与会话执行通道阻塞。");
         System.out.println("\n\u001B[1m参数列表:\u001B[0m");
         System.out.printf("  %-15s %s\n", "-mode", "必填。可选：thread_saturation, conn_exhaustion, conn_storm");
         System.out.printf("  %-15s %s\n", "-duration", "必填。故障持续时长 (ms)");
         System.out.printf("  %-15s %s\n", "-count", "选填。根据模式不同代表溢出线程数或并发数");
         System.out.println("\n\u001B[1m示例:\u001B[0m");
-        System.out.println("  ... max_connection -mode conn_storm -count 200 -duration 60000");
+        System.out.println("  java -jar DBChaos-0.0.1.jar --db opengauss session max_connection -mode conn_storm -count 200 -duration 60000");
     }
 
     private void detectDatabaseConfig() {

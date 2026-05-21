@@ -2,6 +2,12 @@
 
 `scripts/generate_configs.py` 用于把 DBChaos 已实现的不利注入能力转换成上游 TPC-C 与 ChaosBlade 工作流需要的 XML 配置。
 
+当前生成的注入命令结构为：
+
+```text
+java -jar DBChaos-0.0.1.jar [--db <DB_TYPE>] <SUBSYSTEM> <CASE> [OPTIONS]
+```
+
 它会生成三份文件：
 
 - `opengauss_tpcc_config_chaosblade.xml`：主配置文件，包含全部 DBChaos `<faultCases>`。

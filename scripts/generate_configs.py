@@ -46,6 +46,8 @@ class FaultSpec:
 
     id: int
     key: str
+    subsystem: str
+    case_keyword: str
     fault_type: str
     description: str
     category: str
@@ -57,6 +59,8 @@ FAULT_SPECS: Tuple[FaultSpec, ...] = (
     FaultSpec(
         id=201,
         key="plan_flip",
+        subsystem="sql",
+        case_keyword="plan_flip",
         fault_type="plan_flip",
         description="DBChaos Plan Flip",
         category="SQL parsing and optimization",
@@ -65,6 +69,8 @@ FAULT_SPECS: Tuple[FaultSpec, ...] = (
     FaultSpec(
         id=202,
         key="max_connection_conn_storm",
+        subsystem="session",
+        case_keyword="max_connection",
         fault_type="max_connection",
         description="DBChaos Connection Storm",
         category="connection management",
@@ -73,6 +79,8 @@ FAULT_SPECS: Tuple[FaultSpec, ...] = (
     FaultSpec(
         id=203,
         key="max_connection_conn_exhaustion",
+        subsystem="session",
+        case_keyword="max_connection",
         fault_type="max_connection",
         description="DBChaos Connection Exhaustion",
         category="connection management",
@@ -81,6 +89,8 @@ FAULT_SPECS: Tuple[FaultSpec, ...] = (
     FaultSpec(
         id=204,
         key="max_connection_thread_saturation",
+        subsystem="session",
+        case_keyword="max_connection",
         fault_type="max_connection",
         description="DBChaos Thread Pool Saturation",
         category="execution engine",
@@ -89,6 +99,8 @@ FAULT_SPECS: Tuple[FaultSpec, ...] = (
     FaultSpec(
         id=205,
         key="uncommitted_txn",
+        subsystem="txn",
+        case_keyword="uncommitted_txn",
         fault_type="uncommitted_txn",
         description="DBChaos Uncommitted Transaction Lock",
         category="transaction concurrency management",
@@ -97,6 +109,8 @@ FAULT_SPECS: Tuple[FaultSpec, ...] = (
     FaultSpec(
         id=206,
         key="duplicate_txn_update",
+        subsystem="txn",
+        case_keyword="duplicate_txn",
         fault_type="duplicate_txn",
         description="DBChaos Hot Row Update Conflict",
         category="transaction concurrency management",
@@ -105,6 +119,8 @@ FAULT_SPECS: Tuple[FaultSpec, ...] = (
     FaultSpec(
         id=207,
         key="duplicate_txn_insert",
+        subsystem="txn",
+        case_keyword="duplicate_txn",
         fault_type="duplicate_txn",
         description="DBChaos Duplicate Insert Conflict",
         category="transaction concurrency management",
@@ -113,6 +129,8 @@ FAULT_SPECS: Tuple[FaultSpec, ...] = (
     FaultSpec(
         id=208,
         key="stack_overflow_func_recurse",
+        subsystem="exec",
+        case_keyword="stack_overflow",
         fault_type="stack_overflow",
         description="DBChaos Function Stack Overflow",
         category="execution engine",
@@ -121,6 +139,8 @@ FAULT_SPECS: Tuple[FaultSpec, ...] = (
     FaultSpec(
         id=209,
         key="stack_overflow_proc_recurse",
+        subsystem="exec",
+        case_keyword="stack_overflow",
         fault_type="stack_overflow",
         description="DBChaos Procedure Stack Overflow",
         category="execution engine",
@@ -129,6 +149,8 @@ FAULT_SPECS: Tuple[FaultSpec, ...] = (
     FaultSpec(
         id=210,
         key="stack_overflow_trans_recurse",
+        subsystem="exec",
+        case_keyword="stack_overflow",
         fault_type="stack_overflow",
         description="DBChaos Transaction Stack Overflow",
         category="execution engine",
@@ -137,6 +159,8 @@ FAULT_SPECS: Tuple[FaultSpec, ...] = (
     FaultSpec(
         id=211,
         key="stack_overflow_sql_depth",
+        subsystem="sql",
+        case_keyword="stack_overflow",
         fault_type="stack_overflow",
         description="DBChaos SQL Depth Stack Overflow",
         category="SQL parsing and optimization",
@@ -145,6 +169,8 @@ FAULT_SPECS: Tuple[FaultSpec, ...] = (
     FaultSpec(
         id=212,
         key="stack_overflow_view_nest",
+        subsystem="sql",
+        case_keyword="stack_overflow",
         fault_type="stack_overflow",
         description="DBChaos Nested View Stack Overflow",
         category="SQL parsing and optimization",
@@ -153,6 +179,8 @@ FAULT_SPECS: Tuple[FaultSpec, ...] = (
     FaultSpec(
         id=213,
         key="stack_overflow_join_bomb",
+        subsystem="sql",
+        case_keyword="stack_overflow",
         fault_type="stack_overflow",
         description="DBChaos Join Search Stack Overflow",
         category="SQL parsing and optimization",
@@ -161,6 +189,8 @@ FAULT_SPECS: Tuple[FaultSpec, ...] = (
     FaultSpec(
         id=214,
         key="massive_rollback",
+        subsystem="log",
+        case_keyword="massive_rollback",
         fault_type="massive_rollback",
         description="DBChaos Massive Transaction Rollback",
         category="storage engine",
@@ -169,6 +199,8 @@ FAULT_SPECS: Tuple[FaultSpec, ...] = (
     FaultSpec(
         id=215,
         key="memory_pressure",
+        subsystem="storage",
+        case_keyword="memory_pressure",
         fault_type="memory_pressure",
         description="DBChaos Memory Pressure",
         category="memory",
@@ -177,6 +209,8 @@ FAULT_SPECS: Tuple[FaultSpec, ...] = (
     FaultSpec(
         id=216,
         key="max_prepared",
+        subsystem="txn",
+        case_keyword="max_prepared",
         fault_type="max_prepared",
         description="DBChaos Prepared Transaction Limit",
         category="transaction concurrency management",
@@ -511,7 +545,7 @@ def build_fault_case_element(
     for agent in agents:
         agents_node.append(text_element("agent", agent))
 
-    injection_args = ["-jar", jar_path, db_type, spec.fault_type]
+    injection_args = ["-jar", jar_path, "--db", db_type, spec.subsystem, spec.case_keyword]
     injection_args.extend(spec.args)
     injection_args.extend(extra_db_args)
     case.append(command_element("injection", java_cmd, injection_args))

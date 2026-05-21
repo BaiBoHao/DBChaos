@@ -94,7 +94,7 @@ public class StackOverflowInject extends BaseFaultInject {
 
     @Override
     public void printHelp() {
-        System.out.println("\n" + BOLD + "故障画像用法: " + YELLOW + "stack_overflow" + RESET);
+        System.out.println("\n" + BOLD + "不利 Case 用法: " + YELLOW + "sql|exec stack_overflow" + RESET);
         System.out.println("  通过深度递归、表达式爆破或视图嵌套，模拟内核栈溢出场景，验证数据库熔断机制。");
         System.out.println("\n" + BOLD + "参数列表:" + RESET);
         System.out.printf("  %-15s %s\n", "-duration", "必填。故障总时长 (ms)");
@@ -109,7 +109,8 @@ public class StackOverflowInject extends BaseFaultInject {
         System.out.printf("  %-15s %s\n", "join_bomb", "多表连接执行计划搜索爆栈");
 
         System.out.println("\n" + BOLD + "示例:" + RESET);
-        System.out.println(CYAN + "  ... stack_overflow -duration 60000 -mode view_nest -interval 5000" + RESET);
+        System.out.println(CYAN + "  java -jar DBChaos-0.0.1.jar --db opengauss sql stack_overflow -mode view_nest -duration 60000 -interval 5000" + RESET);
+        System.out.println(CYAN + "  java -jar DBChaos-0.0.1.jar --db opengauss exec stack_overflow -mode func_recurse -duration 60000 -interval 1000" + RESET);
     }
 
     private void runFaultLoop(String mode, long duration, long interval) {

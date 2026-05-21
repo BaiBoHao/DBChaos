@@ -57,14 +57,14 @@ public class MemoryPressureFault extends BaseFaultInject {
 
     @Override
     public void printHelp() {
-        System.out.println("\n" + BOLD + "故障画像用法: " + YELLOW + "memory" + RESET);
+        System.out.println("\n" + BOLD + "不利 Case 用法: " + YELLOW + "storage memory_pressure" + RESET);
         System.out.println("  通过高频插入超大 BLOB 数据抢占 Buffer Pool 资源，观察业务查询的延迟抖动。");
         System.out.println("\n" + BOLD + "参数列表:" + RESET);
         System.out.printf("  %-15s %s\n", "-duration", "必填。故障持续时长 (ms)");
         System.out.printf("  %-15s %s\n", "-batch", "选填。单次插入数据大小 (MB, 默认 100)");
         System.out.printf("  %-15s %s\n", "-threads", "选填。注入并发线程数 (默认 4)");
         System.out.println("\n" + BOLD + "示例:" + RESET);
-        System.out.println(CYAN + "  ... memory -duration 60000 -batch 50 -threads 8" + RESET);
+        System.out.println(CYAN + "  java -jar DBChaos-0.0.1.jar --db opengauss storage memory_pressure -duration 60000 -batch 50 -threads 8" + RESET);
     }
 
     private void runMemoryStress(long durationMs, int batchSizeMB, int threads) {

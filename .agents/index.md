@@ -31,3 +31,7 @@
 - [Finalize main merge](20260520T174220-finalize-main-merge.md) - Integrated the latest remote main updates after merging 20260514 and completed validation before pushing main.
 - [Local branch 20260520 setup](20260520T220130-local-branch-20260520.md) - Created local branch `20260520` from the latest local main so subsequent work can continue in the E drive checkout.
 - [README refactor draft](20260520T232303-readme-refactor-draft.md) - Rewrote the root README draft around subsystem-oriented adversity categories and resilience-boundary positioning.
+- [CLI copy draft](20260520T233418-cli-copy-draft.md) - Rewrote the CLI banner and help copy around kernel subsystems, entry keywords, and cleaner examples without changing injection behavior.
+- [Windows build helper draft](20260521T000100-win-build-helper-draft.md) - Added a local `build_for_win.sh` helper to compile, package, and preview the CLI help output on Windows.
+- [Subsystem command model draft](20260521T002020-subsystem-command-model-draft.md) - Switched the local CLI draft to `[--db <DB_TYPE>] <SUBSYSTEM> <CASE>` and aligned help, docs, and config generation around the new command model.
+- [CLI subsystem final draft](20260521T115025-cli-subsystem-final-draft.md) - Finalized the local draft around subsystem-first CLI, cleaner help text, and Windows local build helpers before commit.
