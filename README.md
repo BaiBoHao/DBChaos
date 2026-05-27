@@ -30,9 +30,10 @@ DBChaos 当前按如下数据库内核子系统组织不利能力：
 
 - 连接与会话管理
 - SQL 编译与优化
-- 执行引擎与运行时
+- 执行引擎
 - 事务与并发控制
-- 存储引擎与缓冲管理
+- 存储引擎
+- 缓冲管理
 - 日志、检查点与崩溃恢复
 - 后台维护与系统任务
 - 资源治理与系统配额
@@ -56,7 +57,7 @@ DBChaos 当前按如下数据库内核子系统组织不利能力：
 - **视图展开深度膨胀**：`stack_overflow / view_nest`
 - **Join 搜索空间爆炸**：`stack_overflow / join_bomb`
 
-### 执行引擎与运行时
+### 执行引擎
 
 - **函数递归执行栈溢出**：`stack_overflow / func_recurse`
 - **存储过程递归执行栈溢出**：`stack_overflow / proc_recurse`
@@ -69,7 +70,7 @@ DBChaos 当前按如下数据库内核子系统组织不利能力：
 - **重复插入唯一性冲突**：`duplicate_txn / INSERT`
 - **Prepared/XA 事务积压**：`max_prepared`
 
-### 存储引擎与缓冲管理
+### 缓冲管理
 
 - **大对象写入缓冲挤压**：`memory_pressure`
 

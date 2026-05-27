@@ -18,8 +18,8 @@ java -jar DBChaos-0.0.1.jar [--db <DB_TYPE>] <SUBSYSTEM> <CASE> [OPTIONS]
 
 脚本默认输出以下结果文件：
 
-- `opengauss_tpcc_config_chaosblade.xml`
-- `tpcc_worker.xml`
+- `opengauss_dbchaosTpcc_config_chaosblade.xml`
+- `dbchaosTpcc_worker.xml`
 - `fault-cases-generated.xml`
 
 如果模板文件不存在，脚本会自动初始化最小骨架再继续生成。  

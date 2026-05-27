@@ -41,7 +41,7 @@ public class Main {
     ));
 
     private static final Set<String> SUBSYSTEM_KEYWORDS = new HashSet<>(Arrays.asList(
-        "session", "sql", "exec", "txn", "storage", "log", "task", "quota"
+        "session", "sql", "exec", "txn", "storage", "buffer", "log", "task", "quota"
     ));
 
     private static final Set<String> STACK_SQL_MODES = new HashSet<>(Arrays.asList(
@@ -55,9 +55,10 @@ public class Main {
     private static final String[][] SUBSYSTEM_CATALOG = {
         {"session", "连接与会话管理"},
         {"sql", "SQL 编译与优化"},
-        {"exec", "执行引擎与运行时"},
+        {"exec", "执行引擎"},
         {"txn", "事务与并发控制"},
-        {"storage", "存储引擎与缓冲管理"},
+        {"storage", "存储引擎"},
+        {"buffer", "缓冲管理"},
         {"log", "日志、检查点与崩溃恢复"},
         {"task", "后台维护与系统任务"},
         {"quota", "资源治理与系统配额"}
@@ -71,7 +72,7 @@ public class Main {
         {"txn", "uncommitted_txn", "长事务持锁"},
         {"txn", "duplicate_txn", "热点更新与唯一性冲突"},
         {"txn", "max_prepared", "Prepared/XA 事务积压"},
-        {"storage", "memory_pressure", "大对象写入与缓冲挤压"},
+        {"buffer", "memory_pressure", "大对象写入与缓冲挤压"},
         {"log", "massive_rollback", "高频事务回滚风暴"}
     };
 
@@ -278,8 +279,8 @@ public class Main {
             System.out.println(CYAN + "  java -jar " + jarName + " --db " + dbType + " exec stack_overflow -mode func_recurse -duration 60000 -interval 1000" + RESET);
         } else if ("txn".equals(subsystem)) {
             System.out.println(CYAN + "  java -jar " + jarName + " --db " + dbType + " txn uncommitted_txn -duration 60000 -table bmsql_stock -holders 2 -rows 500" + RESET);
-        } else if ("storage".equals(subsystem)) {
-            System.out.println(CYAN + "  java -jar " + jarName + " --db " + dbType + " storage memory_pressure -duration 60000 -batch 50 -threads 4" + RESET);
+        } else if ("buffer".equals(subsystem)) {
+            System.out.println(CYAN + "  java -jar " + jarName + " --db " + dbType + " buffer memory_pressure -duration 60000 -batch 50 -threads 4" + RESET);
         } else if ("log".equals(subsystem)) {
             System.out.println(CYAN + "  java -jar " + jarName + " --db " + dbType + " log massive_rollback -duration 60000 -threads 16 -rate 0.7" + RESET);
         }

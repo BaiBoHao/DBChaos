@@ -35,7 +35,7 @@ DEFAULT_TEMPLATE_WORKER = "tpccbbh-worker.xml"
 DEFAULT_TEMPLATE_SUITES = "fault-cases-generic.xml"
 DEFAULT_OUTPUT_CONFIG = "opengauss_dbchaosTpcc_config_chaosblade.xml"
 DEFAULT_OUTPUT_WORKER = "dbchaosTpcc_worker.xml"
-DEFAULT_OUTPUT_SUITES = "fault-cases-generic.xml"
+DEFAULT_OUTPUT_SUITES = "fault-cases-generated.xml"
 DEFAULT_SUITE_NAME = "dbchaos-generated-suite"
 DEFAULT_SELECTED_CASE_KEYS: Tuple[str, ...] = ("all",)
 
@@ -199,11 +199,11 @@ FAULT_SPECS: Tuple[FaultSpec, ...] = (
     FaultSpec(
         id=215,
         key="memory_pressure",
-        subsystem="storage",
+        subsystem="buffer",
         case_keyword="memory_pressure",
         fault_type="memory_pressure",
         description="DBChaos Memory Pressure",
-        category="memory",
+        category="buffer management",
         args=("-duration", "60000", "-batch", "50", "-threads", "4"),
     ),
     FaultSpec(
