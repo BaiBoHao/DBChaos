@@ -100,9 +100,23 @@ DBChaos 当前按如下数据库内核子系统组织不利能力：
 
 ### 构建项目
 
+Linux / macOS:
+
 ```bash
 chmod +x build.sh
 ./build.sh DBChaos
+```
+
+Windows 本地环境:
+
+```powershell
+.\build_for_win.ps1 build
+```
+
+如果只想预览当前 CLI / Help 输出，可以执行：
+
+```powershell
+.\build_for_win.ps1 preview-help
 ```
 
 ### 查看当前支持的不利入口
