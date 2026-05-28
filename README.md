@@ -62,13 +62,19 @@ DBChaos 当前按如下数据库内核子系统组织不利能力：
 - **函数递归执行栈溢出**：`stack_overflow / func_recurse`
 - **存储过程递归执行栈溢出**：`stack_overflow / proc_recurse`
 - **事务路径递归执行栈溢出**：`stack_overflow / trans_recurse`
+- **读取放大陷阱**：`read_amp_trap`
 
 ### 事务与并发控制
 
 - **长事务持锁**：`uncommitted_txn`
 - **热点更新冲突**：`duplicate_txn / UPDATE`
 - **重复插入唯一性冲突**：`duplicate_txn / INSERT`
+- **死锁检测风暴**：`deadlock_storm`
 - **Prepared/XA 事务积压**：`max_prepared`
+
+### 存储引擎
+
+- **MVCC 膨胀注入**：`mvcc_bloat`
 
 ### 缓冲管理
 

@@ -85,12 +85,15 @@ python3 scripts/generate_configs.py --select all
 | `uncommitted_txn` | 长事务持锁。 |
 | `duplicate_txn_update` | 热点行更新冲突。 |
 | `duplicate_txn_insert` | 重复插入或唯一约束冲突。 |
+| `deadlock_storm` | 交叉等待与死锁检测过载。 |
 | `stack_overflow_func_recurse` | 函数递归栈溢出。 |
 | `stack_overflow_proc_recurse` | 存储过程递归栈溢出。 |
 | `stack_overflow_trans_recurse` | 事务中的递归栈溢出。 |
 | `stack_overflow_sql_depth` | 超深 SQL 表达式。 |
 | `stack_overflow_view_nest` | 深度嵌套视图。 |
 | `stack_overflow_join_bomb` | 多表 Join 搜索压力。 |
+| `read_amp_trap` | 膨胀后范围扫描带来的读取放大。 |
 | `massive_rollback` | 大规模事务回滚。 |
 | `memory_pressure` | 大对象写入引发的内存或缓冲压力。 |
 | `max_prepared` | Prepared Transaction 或 XA Prepare 上限挤兑。 |
+| `mvcc_bloat` | 快照钉住导致的 MVCC 版本膨胀。 |

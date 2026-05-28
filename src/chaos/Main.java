@@ -37,7 +37,8 @@ public class Main {
 
     private static final Set<String> FAULT_KEYWORDS = new HashSet<>(Arrays.asList(
         "plan_flip", "max_connection", "stack_overflow", "massive_rollback",
-        "memory", "memory_pressure", "max_prepared", "uncommitted_txn", "duplicate_txn"
+        "memory", "memory_pressure", "max_prepared", "uncommitted_txn", "duplicate_txn",
+        "deadlock_storm", "mvcc_bloat", "read_amp_trap"
     ));
 
     private static final Set<String> SUBSYSTEM_KEYWORDS = new HashSet<>(Arrays.asList(
@@ -71,8 +72,11 @@ public class Main {
         {"exec", "stack_overflow", "函数、过程与事务路径递归执行压力"},
         {"txn", "uncommitted_txn", "长事务持锁"},
         {"txn", "duplicate_txn", "热点更新与唯一性冲突"},
+        {"txn", "deadlock_storm", "交叉等待图与死锁检测过载"},
         {"txn", "max_prepared", "Prepared/XA 事务积压"},
+        {"storage", "mvcc_bloat", "长事务钉住快照导致版本膨胀与清理受阻"},
         {"buffer", "memory_pressure", "大对象写入与缓冲挤压"},
+        {"exec", "read_amp_trap", "膨胀后扫描放大与可见性检查开销"},
         {"log", "massive_rollback", "高频事务回滚风暴"}
     };
 
@@ -226,6 +230,9 @@ public class Main {
         System.out.println(CYAN + "  java -jar " + jarName + " sql plan_flip -duration 300000 -threads 16 -interval 60000" + RESET);
         System.out.println(CYAN + "  java -jar " + jarName + " --db opengauss session max_connection -mode conn_storm -duration 60000" + RESET);
         System.out.println(CYAN + "  java -jar " + jarName + " txn uncommitted_txn -duration 60000 -table bmsql_stock -holders 2 -rows 500" + RESET);
+        System.out.println(CYAN + "  java -jar " + jarName + " txn deadlock_storm -duration 60000 -table bmsql_stock -waiters 16 -hot-rows 32" + RESET);
+        System.out.println(CYAN + "  java -jar " + jarName + " storage mvcc_bloat -duration 120000 -anchors 1 -mutators 8 -rows 20000" + RESET);
+        System.out.println(CYAN + "  java -jar " + jarName + " exec read_amp_trap -duration 120000 -warmup 30000 -mutators 8 -scanners 4 -scan-mode mixed" + RESET);
         System.out.println(DIM + "\n帮助：" + RESET);
         System.out.println(DIM + "  java -jar " + jarName + " sql --help" + RESET);
         System.out.println(DIM + "  java -jar " + jarName + " txn duplicate_txn --help" + RESET);
@@ -277,10 +284,13 @@ public class Main {
             System.out.println(CYAN + "  java -jar " + jarName + " --db " + dbType + " sql plan_flip -duration 300000 -threads 16 -interval 60000" + RESET);
         } else if ("exec".equals(subsystem)) {
             System.out.println(CYAN + "  java -jar " + jarName + " --db " + dbType + " exec stack_overflow -mode func_recurse -duration 60000 -interval 1000" + RESET);
+            System.out.println(CYAN + "  java -jar " + jarName + " --db " + dbType + " exec read_amp_trap -duration 120000 -warmup 30000 -mutators 8 -scanners 4 -scan-mode mixed" + RESET);
         } else if ("txn".equals(subsystem)) {
             System.out.println(CYAN + "  java -jar " + jarName + " --db " + dbType + " txn uncommitted_txn -duration 60000 -table bmsql_stock -holders 2 -rows 500" + RESET);
         } else if ("buffer".equals(subsystem)) {
             System.out.println(CYAN + "  java -jar " + jarName + " --db " + dbType + " buffer memory_pressure -duration 60000 -batch 50 -threads 4" + RESET);
+        } else if ("storage".equals(subsystem)) {
+            System.out.println(CYAN + "  java -jar " + jarName + " --db " + dbType + " storage mvcc_bloat -duration 120000 -anchors 1 -mutators 8 -rows 20000" + RESET);
         } else if ("log".equals(subsystem)) {
             System.out.println(CYAN + "  java -jar " + jarName + " --db " + dbType + " log massive_rollback -duration 60000 -threads 16 -rate 0.7" + RESET);
         }
@@ -562,6 +572,9 @@ public class Main {
             case "max_prepared": return new chaos.inject.MaxPreparedInject(dbType);
             case "uncommitted_txn": return new chaos.inject.UncommittedTxnInject(dbType);
             case "duplicate_txn": return new chaos.inject.DuplicateTxnInject(dbType);
+            case "deadlock_storm": return new chaos.inject.DeadlockStormInject(dbType);
+            case "mvcc_bloat": return new chaos.inject.MvccBloatInject(dbType);
+            case "read_amp_trap": return new chaos.inject.ReadAmpTrapInject(dbType);
             case "base": return new BaseFaultInject(dbType, "BASE") {
                 @Override public void execute(String[] args) { this.printHelp(); }
             };

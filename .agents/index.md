@@ -38,3 +38,4 @@
 - [Config generator defaults draft](20260521T121420-config-generator-defaults-draft.md) - Simplified `generate_configs.py` around built-in template/output defaults, removed JSON selection flow, and verified local Python execution.
 - [Subsystem rename split](20260527T120640-subsystem-rename-split.md) - Renamed execution subsystem wording and split storage/buffer into separate kernel subsystems across CLI, docs, and config generation.
 - [README Windows build note](20260527T212829-readme-win-build-note.md) - Added a minimal Windows local build note to the root README using the project build helper.
+- [Long transaction triplet](20260528T104035-long-transaction-triplet.md) - Added three new long-transaction-derived adversity injections for transaction, storage, and execution subsystems.

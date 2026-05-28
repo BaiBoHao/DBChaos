@@ -216,6 +216,36 @@ FAULT_SPECS: Tuple[FaultSpec, ...] = (
         category="transaction concurrency management",
         args=("-count", "201", "-duration", "60", "-concurrency", "50"),
     ),
+    FaultSpec(
+        id=217,
+        key="deadlock_storm",
+        subsystem="txn",
+        case_keyword="deadlock_storm",
+        fault_type="deadlock_storm",
+        description="DBChaos Deadlock Storm",
+        category="transaction concurrency management",
+        args=("-duration", "60000", "-table", "bmsql_stock", "-anchors", "2", "-anchor-rows", "20", "-waiters", "16", "-hot-rows", "32"),
+    ),
+    FaultSpec(
+        id=218,
+        key="mvcc_bloat",
+        subsystem="storage",
+        case_keyword="mvcc_bloat",
+        fault_type="mvcc_bloat",
+        description="DBChaos MVCC Bloat",
+        category="storage engine",
+        args=("-duration", "120000", "-anchors", "1", "-mutators", "8", "-rows", "20000"),
+    ),
+    FaultSpec(
+        id=219,
+        key="read_amp_trap",
+        subsystem="exec",
+        case_keyword="read_amp_trap",
+        fault_type="read_amp_trap",
+        description="DBChaos Read Amplification Trap",
+        category="execution engine",
+        args=("-duration", "120000", "-warmup", "30000", "-mutators", "8", "-scanners", "4", "-scan-mode", "mixed"),
+    ),
 )
 
 FAULT_BY_KEY: Dict[str, FaultSpec] = {spec.key: spec for spec in FAULT_SPECS}
