@@ -109,8 +109,8 @@ DBChaos 当前按如下数据库内核子系统组织不利能力：
 Linux / macOS:
 
 ```bash
-chmod +x build.sh
-./build.sh DBChaos
+chmod +x build_for_linux.sh
+./build_for_linux.sh DBChaos
 ```
 
 Windows 本地环境:
@@ -132,6 +132,30 @@ java -jar DBChaos-0.0.1.jar --help
 ```
 
 如果未显式传入 `--db`，默认读取 `resources/db.properties` 中的 `type`。
+
+### 在注入前探测数据库连接
+
+Windows 本地环境可以先执行：
+
+```powershell
+.\scripts\check_db_connection.ps1
+```
+
+Linux / macOS 环境可以先执行：
+
+```bash
+./scripts/check_db_connection.sh
+```
+
+如果需要临时覆盖数据库类型或连接参数，也可以追加参数：
+
+```powershell
+.\scripts\check_db_connection.ps1 --db opengauss -url "jdbc:opengauss://host:port/database" -user demo -password demo
+```
+
+```bash
+./scripts/check_db_connection.sh --db opengauss -url "jdbc:opengauss://host:port/database" -user demo -password demo
+```
 
 ### 执行一个不利注入
 

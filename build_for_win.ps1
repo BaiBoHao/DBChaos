@@ -1,7 +1,9 @@
 param(
-    [ValidateSet("build", "preview-help", "build-and-help")]
+    [ValidateSet("build", "preview-help", "build-and-help", "check-db", "build-and-check-db")]
     [string]$Command = "build",
-    [string]$JarName = "DBChaos-0.0.1"
+    [string]$JarName = "DBChaos-0.0.1",
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$ForwardArgs
 )
 
 $ErrorActionPreference = "Stop"
@@ -69,6 +71,10 @@ function Show-PreviewHelp {
     & java -cp $ClassPath chaos.Main --help
 }
 
+function Show-DbCheck {
+    & java -cp $ClassPath chaos.tools.DbConnectionProbe @ForwardArgs
+}
+
 function Build-Jar {
     Prepare-Dirs
     Compile-Sources
@@ -94,5 +100,14 @@ switch ($Command) {
     "build-and-help" {
         Build-Jar
         & java -jar $OutputJar --help
+    }
+    "check-db" {
+        Prepare-Dirs
+        Compile-Sources
+        Show-DbCheck
+    }
+    "build-and-check-db" {
+        Build-Jar
+        Show-DbCheck
     }
 }

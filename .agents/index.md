@@ -39,3 +39,6 @@
 - [Subsystem rename split](20260527T120640-subsystem-rename-split.md) - Renamed execution subsystem wording and split storage/buffer into separate kernel subsystems across CLI, docs, and config generation.
 - [README Windows build note](20260527T212829-readme-win-build-note.md) - Added a minimal Windows local build note to the root README using the project build helper.
 - [Long transaction triplet](20260528T104035-long-transaction-triplet.md) - Added three new long-transaction-derived adversity injections for transaction, storage, and execution subsystems.
+- [Scripts directory reorg](20260528T113520-scripts-directory-reorg.md) - Renamed Linux build script, removed the unused Windows shell build script, moved connection probes under scripts, and moved the config generator into a dedicated subdirectory.
+- [DB connection probe draft](20260528T111242-db-connection-probe-draft.md) - Added a standalone database connection probe feature and runnable PowerShell script to validate db.properties before fault injection.
+- [Demo alignment draft](20260528T133646-demo-alignment-draft.md) - Updated demo.sh and demo README so the BenchmarkSQL workflow, connection probe, and adversity injection command structure match the current CLI.
