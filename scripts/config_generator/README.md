@@ -12,15 +12,15 @@ java -jar DBChaos-0.0.1.jar [--db <DB_TYPE>] <SUBSYSTEM> <CASE> [OPTIONS]
 
 脚本默认读取以下模板文件：
 
-- `opengauss_tpccbbh_config_chaosblade.xml`
-- `tpccbbh-worker.xml`
-- `fault-cases-generic.xml`
+- `template/opengauss_tpcc_config_chaosblade.xml`
+- `template/tpcc_worker.xml`
+- `template/fault-cases-generic.xml`
 
 脚本默认输出以下结果文件：
 
-- `opengauss_dbchaosTpcc_config_chaosblade.xml`
-- `dbchaosTpcc_worker.xml`
-- `fault-cases-generated.xml`
+- `output/opengauss_dbchaosTpcc_config_chaosblade.xml`
+- `output/dbchaosTpcc_worker.xml`
+- `output/fault-cases-generated.xml`
 
 如果模板文件不存在，脚本会自动初始化最小骨架再继续生成。  
 如果输出文件不存在，脚本会自动创建输出文件和父目录。
@@ -41,13 +41,13 @@ python3 generate_configs.py --select plan_flip,memory_pressure,max_prepared
 Windows 本地环境可在项目根目录执行：
 
 ```powershell
-.\scripts\check_db_connection.ps1
+.\scripts\probe\check_db_connection.ps1
 ```
 
 Linux / macOS 环境可在项目根目录执行：
 
 ```bash
-./scripts/check_db_connection.sh
+./scripts/probe/check_db_connection.sh
 ```
 
 如果你在仓库根目录执行，也可以使用：

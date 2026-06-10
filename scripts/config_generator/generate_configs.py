@@ -30,12 +30,12 @@ XI_NS = "http://www.w3.org/2001/XInclude"
 ET.register_namespace("xi", XI_NS)
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_TEMPLATE_CONFIG = "opengauss_tpccbbh_config_chaosblade.xml"
-DEFAULT_TEMPLATE_WORKER = "tpccbbh-worker.xml"
-DEFAULT_TEMPLATE_SUITES = "fault-cases-generic.xml"
-DEFAULT_OUTPUT_CONFIG = "opengauss_dbchaosTpcc_config_chaosblade.xml"
-DEFAULT_OUTPUT_WORKER = "dbchaosTpcc_worker.xml"
-DEFAULT_OUTPUT_SUITES = "fault-cases-generated.xml"
+DEFAULT_TEMPLATE_CONFIG = "template/opengauss_tpcc_config_chaosblade.xml"
+DEFAULT_TEMPLATE_WORKER = "template/tpcc_worker.xml"
+DEFAULT_TEMPLATE_SUITES = "template/fault-cases-generic.xml"
+DEFAULT_OUTPUT_CONFIG = "output/opengauss_dbchaosTpcc_config_chaosblade.xml"
+DEFAULT_OUTPUT_WORKER = "output/dbchaosTpcc_worker.xml"
+DEFAULT_OUTPUT_SUITES = "output/fault-cases-generated.xml"
 DEFAULT_SUITE_NAME = "dbchaos-generated-suite"
 DEFAULT_SELECTED_CASE_KEYS: Tuple[str, ...] = ("all",)
 
@@ -732,7 +732,7 @@ def run(args: argparse.Namespace) -> int:
     template_suites = resolve_template_path(args.template_suites, DEFAULT_TEMPLATE_SUITES)
 
     selected = resolve_selection(args.select, args.interactive)
-    worker_include_href = args.worker_include_href or args.output_worker
+    worker_include_href = args.worker_include_href or Path(args.output_worker).name
     config_tree = load_or_create_config_tree(template_config, args.db_type, worker_include_href)
     config_root = config_tree.getroot()
     if config_root.tag != "parameters":

@@ -138,23 +138,23 @@ java -jar DBChaos-0.0.1.jar --help
 Windows 本地环境可以先执行：
 
 ```powershell
-.\scripts\check_db_connection.ps1
+.\scripts\probe\check_db_connection.ps1
 ```
 
 Linux / macOS 环境可以先执行：
 
 ```bash
-./scripts/check_db_connection.sh
+./scripts/probe/check_db_connection.sh
 ```
 
 如果需要临时覆盖数据库类型或连接参数，也可以追加参数：
 
 ```powershell
-.\scripts\check_db_connection.ps1 --db opengauss -url "jdbc:opengauss://host:port/database" -user demo -password demo
+.\scripts\probe\check_db_connection.ps1 --db opengauss -url "jdbc:opengauss://host:port/database" -user demo -password demo
 ```
 
 ```bash
-./scripts/check_db_connection.sh --db opengauss -url "jdbc:opengauss://host:port/database" -user demo -password demo
+./scripts/probe/check_db_connection.sh --db opengauss -url "jdbc:opengauss://host:port/database" -user demo -password demo
 ```
 
 ### 执行一个不利注入

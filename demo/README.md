@@ -11,7 +11,7 @@
 1. **JDK 1.8+**: 确保 `java` 命令可用。
 2. **BenchmarkSQL 5.0+**: 已安装并完成数据装载（Data Build）。
 3. **DBChaos JAR**: 已在项目根目录执行 `./build_for_linux.sh` 生成最新的 `DBChaos-0.0.1.jar`。
-4. **数据库连接**: 确保 `../resources/db.properties` 中的连接信息正确。`demo.sh` 会在注入前自动调用 `../scripts/check_db_connection.sh` 进行连接检查。
+4. **数据库连接**: 确保 `../resources/db.properties` 中的连接信息正确。`demo.sh` 会在注入前自动调用 `../scripts/probe/check_db_connection.sh` 进行连接检查。
 
 
 
@@ -87,7 +87,7 @@ FAULT_DURATION=1   # 故障持续时间 1 分钟
 ### 运行逻辑：
 
 1. **启动压测**: 脚本拉起 BenchmarkSQL，默认运行 10 分钟。
-2. **连接检查**: 在注入前先调用 `../scripts/check_db_connection.sh`，确认数据库可连通。
+2. **连接检查**: 在注入前先调用 `../scripts/probe/check_db_connection.sh`，确认数据库可连通。
 3. **平稳期 (0-3min)**: 数据库处于正常负载，TPS 曲线平稳。
 4. **注入期 (3-4min)**: DBChaos 介入，执行指定的不利注入。此时您会观察到 TPS 出现明显下跌或剧烈抖动。
 5. **恢复期 (4-10min)**: 故障任务结束，观察数据库是否能自动回升至初始性能水平。

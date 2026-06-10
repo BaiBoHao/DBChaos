@@ -24,7 +24,7 @@ CHAOS_PROPS="../resources/chaos.properties"
 CLI_NAME=$(grep "^cli.name=" "$CHAOS_PROPS" | cut -d'=' -f2 | tr -d '\r' | xargs)
 CLI_VER=$(grep "^cli.version=" "$CHAOS_PROPS" | cut -d'=' -f2 | tr -d '\r' | xargs)
 JAR_PATH="../target/${CLI_NAME}-${CLI_VER}.jar"
-DB_PROBE_SCRIPT="../scripts/check_db_connection.sh"
+DB_PROBE_SCRIPT="../scripts/probe/check_db_connection.sh"
 
 
 # ================================================================
