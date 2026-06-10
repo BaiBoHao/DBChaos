@@ -94,7 +94,7 @@ DBChaos 当前按如下数据库内核子系统组织不利能力：
 - **Inject 层**：每个不利 Case 对应一个具体注入实现
 - **CLI / Script 层**：负责命令行入口、帮助信息以及与外部压测/配置脚本的联动
 
-此外，项目已具备 **Case 模板、统一注册表和脚手架脚本**，用于降低新增不利的开发成本。
+此外，项目已具备 **Case 模板、统一 JSON 注册表和脚手架脚本**，用于降低新增不利的开发成本。
 
 ---
 
@@ -182,7 +182,7 @@ java -jar DBChaos-0.0.1.jar --db opengauss sql plan_flip -threads 16 -duration 3
 新增一个不利时，不再需要手工同步修改多处代码，而是按统一流程完成：
 
 1. 使用 `scripts/scaffold/` 下的脚手架生成新的注入器类
-2. 自动补齐 Case 注册表
+2. 自动补齐 `resources/registry/registry.json` 中的 Case 注册信息
 3. 如有需要，再追加配置生成注册信息
 
 脚手架说明见：

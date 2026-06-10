@@ -1,23 +1,23 @@
 # Scaffold
 
-本目录用于快速新增一个不利 Case，而不是手工同步修改多处代码。
+该目录用于快速新增一个 DBChaos 不利 Case，并自动补齐对应的 JSON 注册信息。
 
 ## 提供内容
 
 - `new_case.py`
-  脚手架主体，负责：
+  脚手架主程序，负责：
   - 生成新的 Java 注入器类
-  - 追加 `resources/registry/cases.tsv`
-  - 可选追加 `resources/registry/generator_profiles.tsv`
+  - 追加 `resources/registry/registry.json` 中的 Case 定义
+  - 可选追加配置生成器使用的 `generatorProfiles`
 
 - `new_case.sh`
-  Linux / macOS 包装脚本。
+  Linux / macOS 包装脚本
 
 - `new_case.ps1`
-  Windows PowerShell 包装脚本。
+  Windows PowerShell 包装脚本
 
 - `../../templates/CaseInject.java.template`
-  Java 注入器模板。
+  Java 注入器模板
 
 ## 最小用法
 
@@ -45,9 +45,9 @@ Windows PowerShell:
   --example-args "-duration 60000"
 ```
 
-## 如果还要进入配置生成链
+## 如果还要进入配置生成链路
 
-如果新增的 Case 还需要出现在 `scripts/config_generator/generate_configs.py` 的候选列表中，需要额外提供生成器配置：
+如果新 Case 还需要出现在 `scripts/config_generator/generate_configs.py` 的候选列表中，需要补充生成器信息：
 
 - `--generator-id`
 - `--generator-key`
@@ -56,16 +56,13 @@ Windows PowerShell:
 - `--generator-args`
 - `--generator-during-sec`
 
-这样脚手架会同时把新 Case 追加进：
-
-- `resources/registry/cases.tsv`
-- `resources/registry/generator_profiles.tsv`
+这样脚手架会把这些信息一并写入 `resources/registry/registry.json` 的 `generatorProfiles` 字段中。
 
 ## 结果
 
-执行完成后，新增一个 Case 的最少工作会被收敛成两部分：
+执行完成后，一个新 Case 的最小落地会被收敛为两部分：
 
-1. 自动生成实现类骨架
-2. 自动补齐注册表元数据
+1. 自动生成注入器实现类
+2. 自动补齐 JSON 注册元数据
 
-后续 CLI、帮助页、配置生成会自动感知这条注册信息。
+后续 CLI、帮助页和配置生成器都会基于这份注册信息自动联动。

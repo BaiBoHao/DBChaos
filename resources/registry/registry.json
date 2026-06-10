@@ -1,0 +1,499 @@
+{
+  "subsystems": [
+    {
+      "key": "session",
+      "title": "连接与会话管理"
+    },
+    {
+      "key": "sql",
+      "title": "SQL 编译与优化"
+    },
+    {
+      "key": "exec",
+      "title": "执行引擎"
+    },
+    {
+      "key": "txn",
+      "title": "事务与并发控制"
+    },
+    {
+      "key": "storage",
+      "title": "存储引擎"
+    },
+    {
+      "key": "buffer",
+      "title": "缓冲管理"
+    },
+    {
+      "key": "log",
+      "title": "日志、检查点与崩溃恢复"
+    },
+    {
+      "key": "task",
+      "title": "后台维护与系统任务"
+    },
+    {
+      "key": "quota",
+      "title": "资源治理与系统配额"
+    }
+  ],
+  "cases": [
+    {
+      "subsystem": "session",
+      "caseKey": "max_connection",
+      "title": "连接风暴、连接耗尽、线程池饱和",
+      "description": "该 Case 用于模拟连接挤兑与会话执行通道阻塞。",
+      "injectorClass": "chaos.inject.MaxConnectionInject",
+      "exampleArgs": "-mode conn_storm -duration 60000",
+      "generatorProfiles": [
+        {
+          "id": 202,
+          "key": "max_connection_conn_storm",
+          "description": "DBChaos Connection Storm",
+          "category": "connection management",
+          "args": [
+            "-mode",
+            "conn_storm",
+            "-count",
+            "200",
+            "-duration",
+            "60000"
+          ],
+          "duringSec": 60
+        },
+        {
+          "id": 203,
+          "key": "max_connection_conn_exhaustion",
+          "description": "DBChaos Connection Exhaustion",
+          "category": "connection management",
+          "args": [
+            "-mode",
+            "conn_exhaustion",
+            "-count",
+            "200",
+            "-duration",
+            "60000"
+          ],
+          "duringSec": 60
+        },
+        {
+          "id": 204,
+          "key": "max_connection_thread_saturation",
+          "description": "DBChaos Thread Pool Saturation",
+          "category": "execution engine",
+          "args": [
+            "-mode",
+            "thread_saturation",
+            "-count",
+            "32",
+            "-duration",
+            "60000"
+          ],
+          "duringSec": 60
+        }
+      ]
+    },
+    {
+      "subsystem": "sql",
+      "caseKey": "plan_flip",
+      "title": "执行计划翻转",
+      "description": "通过构造数据倾斜触发统计信息更新，强制优化器在 IndexScan 与 SeqScan 间震荡。",
+      "injectorClass": "chaos.inject.PlanFlipInject",
+      "exampleArgs": "-duration 300000 -threads 16 -interval 60000",
+      "generatorProfiles": [
+        {
+          "id": 201,
+          "key": "plan_flip",
+          "description": "DBChaos Plan Flip",
+          "category": "SQL parsing and optimization",
+          "args": [
+            "-duration",
+            "60000",
+            "-threads",
+            "16",
+            "-count",
+            "1000000",
+            "-interval",
+            "60000"
+          ],
+          "duringSec": 60
+        }
+      ]
+    },
+    {
+      "subsystem": "sql",
+      "caseKey": "stack_overflow",
+      "title": "深层表达式、视图展开、Join 搜索压力",
+      "description": "通过深度递归、表达式爆破或视图嵌套，模拟内核栈溢出场景。",
+      "injectorClass": "chaos.inject.StackOverflowInject",
+      "exampleArgs": "-mode view_nest -duration 60000 -interval 5000",
+      "defaultMode": "sql_depth",
+      "allowedModes": [
+        "sql_depth",
+        "view_nest",
+        "join_bomb"
+      ],
+      "generatorProfiles": [
+        {
+          "id": 211,
+          "key": "stack_overflow_sql_depth",
+          "description": "DBChaos SQL Depth Stack Overflow",
+          "category": "SQL parsing and optimization",
+          "args": [
+            "-mode",
+            "sql_depth",
+            "-duration",
+            "60000",
+            "-interval",
+            "1000"
+          ],
+          "duringSec": 60
+        },
+        {
+          "id": 212,
+          "key": "stack_overflow_view_nest",
+          "description": "DBChaos Nested View Stack Overflow",
+          "category": "SQL parsing and optimization",
+          "args": [
+            "-mode",
+            "view_nest",
+            "-duration",
+            "60000",
+            "-interval",
+            "5000"
+          ],
+          "duringSec": 60
+        },
+        {
+          "id": 213,
+          "key": "stack_overflow_join_bomb",
+          "description": "DBChaos Join Search Stack Overflow",
+          "category": "SQL parsing and optimization",
+          "args": [
+            "-mode",
+            "join_bomb",
+            "-duration",
+            "60000",
+            "-interval",
+            "5000"
+          ],
+          "duringSec": 60
+        }
+      ]
+    },
+    {
+      "subsystem": "exec",
+      "caseKey": "stack_overflow",
+      "title": "函数、过程与事务路径递归执行压力",
+      "description": "通过深度递归、表达式爆破或视图嵌套，模拟内核栈溢出场景。",
+      "injectorClass": "chaos.inject.StackOverflowInject",
+      "exampleArgs": "-mode func_recurse -duration 60000 -interval 1000",
+      "defaultMode": "func_recurse",
+      "allowedModes": [
+        "func_recurse",
+        "proc_recurse",
+        "trans_recurse"
+      ],
+      "generatorProfiles": [
+        {
+          "id": 208,
+          "key": "stack_overflow_func_recurse",
+          "description": "DBChaos Function Stack Overflow",
+          "category": "execution engine",
+          "args": [
+            "-mode",
+            "func_recurse",
+            "-duration",
+            "60000",
+            "-interval",
+            "1000"
+          ],
+          "duringSec": 60
+        },
+        {
+          "id": 209,
+          "key": "stack_overflow_proc_recurse",
+          "description": "DBChaos Procedure Stack Overflow",
+          "category": "execution engine",
+          "args": [
+            "-mode",
+            "proc_recurse",
+            "-duration",
+            "60000",
+            "-interval",
+            "1000"
+          ],
+          "duringSec": 60
+        },
+        {
+          "id": 210,
+          "key": "stack_overflow_trans_recurse",
+          "description": "DBChaos Transaction Stack Overflow",
+          "category": "execution engine",
+          "args": [
+            "-mode",
+            "trans_recurse",
+            "-duration",
+            "60000",
+            "-interval",
+            "1000"
+          ],
+          "duringSec": 60
+        }
+      ]
+    },
+    {
+      "subsystem": "txn",
+      "caseKey": "uncommitted_txn",
+      "title": "长事务持锁",
+      "description": "模拟业务中未提交的长事务，通过对指定表记录加锁制造锁冲突。",
+      "injectorClass": "chaos.inject.UncommittedTxnInject",
+      "exampleArgs": "-duration 60000 -table bmsql_stock -holders 2 -rows 500",
+      "generatorProfiles": [
+        {
+          "id": 205,
+          "key": "uncommitted_txn",
+          "description": "DBChaos Uncommitted Transaction Lock",
+          "category": "transaction concurrency management",
+          "args": [
+            "-duration",
+            "60000",
+            "-table",
+            "bmsql_stock",
+            "-holders",
+            "2",
+            "-rows",
+            "500"
+          ],
+          "duringSec": 60
+        }
+      ]
+    },
+    {
+      "subsystem": "txn",
+      "caseKey": "duplicate_txn",
+      "title": "热点更新与唯一性冲突",
+      "description": "模拟热点行重复事务执行，诱发行锁等待、死锁或唯一性冲突。",
+      "injectorClass": "chaos.inject.DuplicateTxnInject",
+      "exampleArgs": "-sessions 50 -duration 60 -mode UPDATE",
+      "generatorProfiles": [
+        {
+          "id": 206,
+          "key": "duplicate_txn_update",
+          "description": "DBChaos Hot Row Update Conflict",
+          "category": "transaction concurrency management",
+          "args": [
+            "-sessions",
+            "50",
+            "-duration",
+            "60",
+            "-mode",
+            "UPDATE"
+          ],
+          "duringSec": 60
+        },
+        {
+          "id": 207,
+          "key": "duplicate_txn_insert",
+          "description": "DBChaos Duplicate Insert Conflict",
+          "category": "transaction concurrency management",
+          "args": [
+            "-sessions",
+            "50",
+            "-duration",
+            "60",
+            "-mode",
+            "INSERT"
+          ],
+          "duringSec": 60
+        }
+      ]
+    },
+    {
+      "subsystem": "txn",
+      "caseKey": "deadlock_storm",
+      "title": "交叉等待图与死锁检测过载",
+      "description": "通过长事务锚点和交叉乱序加锁请求，诱导死锁检测器过载与高频回滚。",
+      "injectorClass": "chaos.inject.DeadlockStormInject",
+      "exampleArgs": "-duration 60000 -table bmsql_stock -anchors 2 -anchor-rows 20 -waiters 16 -hot-rows 32",
+      "generatorProfiles": [
+        {
+          "id": 217,
+          "key": "deadlock_storm",
+          "description": "DBChaos Deadlock Storm",
+          "category": "transaction concurrency management",
+          "args": [
+            "-duration",
+            "60000",
+            "-table",
+            "bmsql_stock",
+            "-anchors",
+            "2",
+            "-anchor-rows",
+            "20",
+            "-waiters",
+            "16",
+            "-hot-rows",
+            "32"
+          ],
+          "duringSec": 60
+        }
+      ]
+    },
+    {
+      "subsystem": "txn",
+      "caseKey": "max_prepared",
+      "title": "Prepared/XA 事务积压",
+      "description": "并发触发 Prepared Transaction / XA Prepare，挤兑二阶段提交事务上限。",
+      "injectorClass": "chaos.inject.MaxPreparedInject",
+      "exampleArgs": "-count 201 -duration 60 -concurrency 50",
+      "generatorProfiles": [
+        {
+          "id": 216,
+          "key": "max_prepared",
+          "description": "DBChaos Prepared Transaction Limit",
+          "category": "transaction concurrency management",
+          "args": [
+            "-count",
+            "201",
+            "-duration",
+            "60",
+            "-concurrency",
+            "50"
+          ],
+          "duringSec": 60
+        }
+      ]
+    },
+    {
+      "subsystem": "storage",
+      "caseKey": "mvcc_bloat",
+      "title": "长事务钉住快照导致版本膨胀与清理受阻",
+      "description": "通过快照锚点钉住 xmin 地平线，并对热点表高频更新，制造版本膨胀与清理受阻。",
+      "injectorClass": "chaos.inject.MvccBloatInject",
+      "exampleArgs": "-duration 120000 -anchors 1 -mutators 8 -rows 20000",
+      "generatorProfiles": [
+        {
+          "id": 218,
+          "key": "mvcc_bloat",
+          "description": "DBChaos MVCC Bloat",
+          "category": "storage engine",
+          "args": [
+            "-duration",
+            "120000",
+            "-anchors",
+            "1",
+            "-mutators",
+            "8",
+            "-rows",
+            "20000"
+          ],
+          "duringSec": 60
+        }
+      ]
+    },
+    {
+      "subsystem": "buffer",
+      "caseKey": "memory_pressure",
+      "title": "大对象写入与缓冲挤压",
+      "description": "通过高频插入超大 BLOB 数据抢占 Buffer Pool 资源，观察业务查询延迟抖动。",
+      "injectorClass": "chaos.inject.MemoryPressureFault",
+      "exampleArgs": "-duration 60000 -batch 50 -threads 8",
+      "aliases": [
+        "memory"
+      ],
+      "generatorProfiles": [
+        {
+          "id": 215,
+          "key": "memory_pressure",
+          "description": "DBChaos Memory Pressure",
+          "category": "buffer management",
+          "args": [
+            "-duration",
+            "60000",
+            "-batch",
+            "50",
+            "-threads",
+            "4"
+          ],
+          "duringSec": 60
+        }
+      ]
+    },
+    {
+      "subsystem": "exec",
+      "caseKey": "read_amp_trap",
+      "title": "膨胀后扫描放大与可见性检查开销",
+      "description": "通过快照锚点和预热膨胀制造大量不可见版本，再触发扫描型查询放大执行器负载。",
+      "injectorClass": "chaos.inject.ReadAmpTrapInject",
+      "exampleArgs": "-duration 120000 -warmup 30000 -mutators 8 -scanners 4 -scan-mode mixed",
+      "generatorProfiles": [
+        {
+          "id": 219,
+          "key": "read_amp_trap",
+          "description": "DBChaos Read Amplification Trap",
+          "category": "execution engine",
+          "args": [
+            "-duration",
+            "120000",
+            "-warmup",
+            "30000",
+            "-mutators",
+            "8",
+            "-scanners",
+            "4",
+            "-scan-mode",
+            "mixed"
+          ],
+          "duringSec": 60
+        }
+      ]
+    },
+    {
+      "subsystem": "log",
+      "caseKey": "massive_rollback",
+      "title": "高频事务回滚风暴",
+      "description": "模拟高频事务回滚，持续放大 Undo/Redo/WAL 日志压力。",
+      "injectorClass": "chaos.inject.MassiveRollbackInject",
+      "exampleArgs": "-duration 60000 -threads 32 -rate 0.9",
+      "generatorProfiles": [
+        {
+          "id": 214,
+          "key": "massive_rollback",
+          "description": "DBChaos Massive Transaction Rollback",
+          "category": "log and recovery",
+          "args": [
+            "-duration",
+            "60000",
+            "-threads",
+            "16",
+            "-rate",
+            "0.7"
+          ],
+          "duringSec": 60
+        }
+      ]
+    },
+    {
+      "subsystem": "quota",
+      "caseKey": "test_case",
+      "title": "Test_Case 联动验证",
+      "description": "用于验证 JSON 注册、CLI 帮助页与配置生成器联动是否生效。",
+      "injectorClass": "chaos.inject.TestCaseInject",
+      "exampleArgs": "-duration 60000",
+      "generatorProfiles": [
+        {
+          "id": 220,
+          "key": "test_case",
+          "description": "DBChaos Test Case",
+          "category": "resource governance",
+          "args": [
+            "-duration",
+            "60000"
+          ],
+          "duringSec": 60
+        }
+      ]
+    }
+  ]
+}

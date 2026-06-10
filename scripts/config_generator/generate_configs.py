@@ -19,9 +19,7 @@ Example:
 from __future__ import annotations
 
 import argparse
-import csv
-import shlex
-import sys
+import json
 import xml.etree.ElementTree as ET
 from configparser import ConfigParser
 from dataclasses import dataclass
@@ -34,6 +32,7 @@ ET.register_namespace("xi", XI_NS)
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 REGISTRY_DIR = PROJECT_ROOT / "resources" / "registry"
+REGISTRY_FILE = REGISTRY_DIR / "registry.json"
 DEFAULT_TEMPLATE_CONFIG = "template/opengauss_tpcc_config_chaosblade.xml"
 DEFAULT_TEMPLATE_WORKER = "template/tpcc_worker.xml"
 DEFAULT_TEMPLATE_SUITES = "template/fault-cases-generic.xml"
@@ -42,7 +41,6 @@ DEFAULT_OUTPUT_WORKER = "output/dbchaosTpcc_worker.xml"
 DEFAULT_OUTPUT_SUITES = "output/fault-cases-generated.xml"
 DEFAULT_SUITE_NAME = "dbchaos-generated-suite"
 DEFAULT_SELECTED_CASE_KEYS: Tuple[str, ...] = ("all",)
-GENERATOR_PROFILE_FILE = REGISTRY_DIR / "generator_profiles.tsv"
 
 
 @dataclass(frozen=True)
@@ -61,23 +59,26 @@ class FaultSpec:
 
 
 def load_fault_specs() -> Tuple[FaultSpec, ...]:
+    registry = json.loads(REGISTRY_FILE.read_text(encoding="utf-8"))
     specs: List[FaultSpec] = []
-    with GENERATOR_PROFILE_FILE.open("r", encoding="utf-8", newline="") as handle:
-        reader = csv.DictReader(handle, delimiter="\t")
-        for row in reader:
+    for case_item in registry.get("cases", []):
+        subsystem = case_item["subsystem"].strip()
+        case_keyword = case_item["caseKey"].strip()
+        for profile in case_item.get("generatorProfiles", []):
             specs.append(
                 FaultSpec(
-                    id=int(row["id"]),
-                    key=row["key"].strip(),
-                    subsystem=row["subsystem"].strip(),
-                    case_keyword=row["case_key"].strip(),
-                    fault_type=row["case_key"].strip(),
-                    description=row["description"].strip(),
-                    category=row["category"].strip(),
-                    args=tuple(shlex.split(row["args"].strip())),
-                    default_during_sec=int(row["during_sec"]),
+                    id=int(profile["id"]),
+                    key=profile["key"].strip(),
+                    subsystem=subsystem,
+                    case_keyword=case_keyword,
+                    fault_type=case_keyword,
+                    description=profile["description"].strip(),
+                    category=profile["category"].strip(),
+                    args=tuple(str(item).strip() for item in profile.get("args", [])),
+                    default_during_sec=int(profile.get("duringSec", 60)),
                 )
             )
+    specs.sort(key=lambda item: item.id)
     return tuple(specs)
 
 
