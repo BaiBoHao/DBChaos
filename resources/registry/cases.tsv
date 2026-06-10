@@ -1,0 +1,13 @@
+﻿subsystem	case_key	title	description	injector_class	example_args	default_mode	allowed_modes	aliases
+session	max_connection	连接风暴、连接耗尽、线程池饱和	该 Case 用于模拟连接挤兑与会话执行通道阻塞。	chaos.inject.MaxConnectionInject	-mode conn_storm -duration 60000			
+sql	plan_flip	执行计划翻转	通过构造数据倾斜触发统计信息更新，强制优化器在 IndexScan 与 SeqScan 间震荡。	chaos.inject.PlanFlipInject	-duration 300000 -threads 16 -interval 60000			
+sql	stack_overflow	深层表达式、视图展开、Join 搜索压力	通过深度递归、表达式爆破或视图嵌套，模拟内核栈溢出场景。	chaos.inject.StackOverflowInject	-mode view_nest -duration 60000 -interval 5000	sql_depth	sql_depth|view_nest|join_bomb	
+exec	stack_overflow	函数、过程与事务路径递归执行压力	通过深度递归、表达式爆破或视图嵌套，模拟内核栈溢出场景。	chaos.inject.StackOverflowInject	-mode func_recurse -duration 60000 -interval 1000	func_recurse	func_recurse|proc_recurse|trans_recurse	
+txn	uncommitted_txn	长事务持锁	模拟业务中未提交的长事务，通过对指定表记录加锁制造锁冲突。	chaos.inject.UncommittedTxnInject	-duration 60000 -table bmsql_stock -holders 2 -rows 500			
+txn	duplicate_txn	热点更新与唯一性冲突	模拟热点行重复事务执行，诱发行锁等待、死锁或唯一性冲突。	chaos.inject.DuplicateTxnInject	-sessions 50 -duration 60 -mode UPDATE			
+txn	deadlock_storm	交叉等待图与死锁检测过载	通过长事务锚点和交叉乱序加锁请求，诱导死锁检测器过载与高频回滚。	chaos.inject.DeadlockStormInject	-duration 60000 -table bmsql_stock -anchors 2 -anchor-rows 20 -waiters 16 -hot-rows 32			
+txn	max_prepared	Prepared/XA 事务积压	并发触发 Prepared Transaction / XA Prepare，挤兑二阶段提交事务上限。	chaos.inject.MaxPreparedInject	-count 201 -duration 60 -concurrency 50			
+storage	mvcc_bloat	长事务钉住快照导致版本膨胀与清理受阻	通过快照锚点钉住 xmin 地平线，并对热点表高频更新，制造版本膨胀与清理受阻。	chaos.inject.MvccBloatInject	-duration 120000 -anchors 1 -mutators 8 -rows 20000			
+buffer	memory_pressure	大对象写入与缓冲挤压	通过高频插入超大 BLOB 数据抢占 Buffer Pool 资源，观察业务查询延迟抖动。	chaos.inject.MemoryPressureFault	-duration 60000 -batch 50 -threads 8			memory
+exec	read_amp_trap	膨胀后扫描放大与可见性检查开销	通过快照锚点和预热膨胀制造大量不可见版本，再触发扫描型查询放大执行器负载。	chaos.inject.ReadAmpTrapInject	-duration 120000 -warmup 30000 -mutators 8 -scanners 4 -scan-mode mixed			
+log	massive_rollback	高频事务回滚风暴	模拟高频事务回滚，持续放大 Undo/Redo/WAL 日志压力。	chaos.inject.MassiveRollbackInject	-duration 60000 -threads 32 -rate 0.9			

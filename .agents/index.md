@@ -43,5 +43,6 @@
 - [DB connection probe draft](20260528T111242-db-connection-probe-draft.md) - Added a standalone database connection probe feature and runnable PowerShell script to validate db.properties before fault injection.
 - [Demo alignment draft](20260528T133646-demo-alignment-draft.md) - Updated demo.sh and demo README so the BenchmarkSQL workflow, connection probe, and adversity injection command structure match the current CLI.
 - [Branch 20260610 setup](20260610T222504-branch-20260610.md) - Created branch `20260610` from the latest `20260520` and ignored legacy generated XML files under `scripts/` on the server checkout.
+- [Case registry refactor](20260611T015046-case-registry-refactor.md) - Replaced hardcoded CLI and generator case catalogs with registry files, added scaffolding templates/scripts, and wired automatic linkage across help, config generation, and new Case creation.
 - [Probe and config layout](20260611T004913-probe-and-config-layout.md) - Added a reusable preflight check, moved probe scripts under scripts/probe, and organized config generator inputs and outputs into dedicated subdirectories.
 - [Scripts README UTF-8 fix](20260611T010307-scripts-readme-utf8-fix.md) - Restored the server-side scripts/README.md to proper UTF-8 content after it degraded into question-mark placeholders.

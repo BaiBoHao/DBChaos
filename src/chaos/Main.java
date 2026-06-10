@@ -13,6 +13,9 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import chaos.core.BaseFaultInject;
+import chaos.registry.CaseDescriptor;
+import chaos.registry.CaseRegistry;
+import chaos.registry.SubsystemDescriptor;
 
 /**
  * DBChaos 项目启动主类。
@@ -21,6 +24,7 @@ import chaos.core.BaseFaultInject;
 public class Main {
     private static final Properties appProps = new Properties();
     private static final Properties dbProps = new Properties();
+    private static final CaseRegistry REGISTRY = CaseRegistry.getInstance();
 
     // 颜色常量
     private static final String RESET  = "\u001B[0m";
@@ -34,51 +38,6 @@ public class Main {
     private static final Set<String> SUPPORTED_DBS = new HashSet<>(Arrays.asList(
         "opengauss", "og", "postgresql", "pg", "mysql", "oceanbase", "ob"
     ));
-
-    private static final Set<String> FAULT_KEYWORDS = new HashSet<>(Arrays.asList(
-        "plan_flip", "max_connection", "stack_overflow", "massive_rollback",
-        "memory", "memory_pressure", "max_prepared", "uncommitted_txn", "duplicate_txn",
-        "deadlock_storm", "mvcc_bloat", "read_amp_trap"
-    ));
-
-    private static final Set<String> SUBSYSTEM_KEYWORDS = new HashSet<>(Arrays.asList(
-        "session", "sql", "exec", "txn", "storage", "buffer", "log", "task", "quota"
-    ));
-
-    private static final Set<String> STACK_SQL_MODES = new HashSet<>(Arrays.asList(
-        "sql_depth", "view_nest", "join_bomb"
-    ));
-
-    private static final Set<String> STACK_EXEC_MODES = new HashSet<>(Arrays.asList(
-        "func_recurse", "proc_recurse", "trans_recurse", "proc_recurse"
-    ));
-
-    private static final String[][] SUBSYSTEM_CATALOG = {
-        {"session", "连接与会话管理"},
-        {"sql", "SQL 编译与优化"},
-        {"exec", "执行引擎"},
-        {"txn", "事务与并发控制"},
-        {"storage", "存储引擎"},
-        {"buffer", "缓冲管理"},
-        {"log", "日志、检查点与崩溃恢复"},
-        {"task", "后台维护与系统任务"},
-        {"quota", "资源治理与系统配额"}
-    };
-
-    private static final String[][] CASE_CATALOG = {
-        {"session", "max_connection", "连接风暴、连接耗尽、线程池饱和"},
-        {"sql", "plan_flip", "执行计划翻转"},
-        {"sql", "stack_overflow", "深层表达式、视图展开、Join 搜索压力"},
-        {"exec", "stack_overflow", "函数、过程与事务路径递归执行压力"},
-        {"txn", "uncommitted_txn", "长事务持锁"},
-        {"txn", "duplicate_txn", "热点更新与唯一性冲突"},
-        {"txn", "deadlock_storm", "交叉等待图与死锁检测过载"},
-        {"txn", "max_prepared", "Prepared/XA 事务积压"},
-        {"storage", "mvcc_bloat", "长事务钉住快照导致版本膨胀与清理受阻"},
-        {"buffer", "memory_pressure", "大对象写入与缓冲挤压"},
-        {"exec", "read_amp_trap", "膨胀后扫描放大与可见性检查开销"},
-        {"log", "massive_rollback", "高频事务回滚风暴"}
-    };
 
     static {
         try (InputStream in = Main.class.getResourceAsStream("/chaos.properties")) {
@@ -137,12 +96,12 @@ public class Main {
             return;
         }
 
-        if (FAULT_KEYWORDS.contains(command.subsystem)) {
+        if (REGISTRY.isKnownCaseKeyword(command.subsystem)) {
             printMissingSubsystemHint(command.subsystem);
             return;
         }
 
-        if (!isKnownSubsystem(command.subsystem)) {
+        if (!REGISTRY.isKnownSubsystem(command.subsystem)) {
             printUnknownSubsystem(command.subsystem);
             return;
         }
@@ -152,7 +111,7 @@ public class Main {
             return;
         }
 
-        if (!isCaseAllowedInSubsystem(command.subsystem, command.caseKey)) {
+        if (REGISTRY.findCaseDescriptor(command.subsystem, command.caseKey) == null) {
             printCaseMismatch(command.subsystem, command.caseKey);
             return;
         }
@@ -166,7 +125,7 @@ public class Main {
 
         parseGlobalOverrides(args);
 
-        BaseFaultInject injector = createInjector(command.dbType, command.caseKey);
+        BaseFaultInject injector = REGISTRY.createInjector(command.dbType, command.subsystem, command.caseKey);
         if (injector == null) {
             System.out.println(RED + BOLD + " 未知的注入入口: " + command.caseKey + RESET);
             printSubsystemHelp(command.dbType, command.subsystem, false);
@@ -227,12 +186,9 @@ public class Main {
         System.out.printf("  %-20s %s\n", "-password <pwd>", "覆盖数据库密码");
 
         System.out.println("\n" + BOLD + "示例" + RESET);
-        System.out.println(CYAN + "  java -jar " + jarName + " sql plan_flip -duration 300000 -threads 16 -interval 60000" + RESET);
-        System.out.println(CYAN + "  java -jar " + jarName + " --db opengauss session max_connection -mode conn_storm -duration 60000" + RESET);
-        System.out.println(CYAN + "  java -jar " + jarName + " txn uncommitted_txn -duration 60000 -table bmsql_stock -holders 2 -rows 500" + RESET);
-        System.out.println(CYAN + "  java -jar " + jarName + " txn deadlock_storm -duration 60000 -table bmsql_stock -waiters 16 -hot-rows 32" + RESET);
-        System.out.println(CYAN + "  java -jar " + jarName + " storage mvcc_bloat -duration 120000 -anchors 1 -mutators 8 -rows 20000" + RESET);
-        System.out.println(CYAN + "  java -jar " + jarName + " exec read_amp_trap -duration 120000 -warmup 30000 -mutators 8 -scanners 4 -scan-mode mixed" + RESET);
+        for (CaseDescriptor descriptor : REGISTRY.getExampleCases(6)) {
+            System.out.println(CYAN + "  " + buildExampleCommand(jarName, "opengauss", descriptor) + RESET);
+        }
         System.out.println(DIM + "\n帮助：" + RESET);
         System.out.println(DIM + "  java -jar " + jarName + " sql --help" + RESET);
         System.out.println(DIM + "  java -jar " + jarName + " txn duplicate_txn --help" + RESET);
@@ -240,25 +196,23 @@ public class Main {
     }
 
     private static void printSubsystemCatalog(boolean includeCases) {
-        for (String[] subsystem : SUBSYSTEM_CATALOG) {
-            System.out.println("  " + CYAN + subsystem[0] + RESET + "  " + BOLD + subsystem[1] + RESET);
+        for (SubsystemDescriptor subsystem : REGISTRY.getSubsystems()) {
+            System.out.println("  " + CYAN + subsystem.getKey() + RESET + "  " + BOLD + subsystem.getTitle() + RESET);
             if (includeCases) {
-                printCasesForSubsystem(subsystem[0], "    ");
+                printCasesForSubsystem(subsystem.getKey(), "    ");
             }
         }
     }
 
     private static void printCasesForSubsystem(String subsystem, String indent) {
-        for (String[] c : CASE_CATALOG) {
-            if (subsystem.equals(c[0])) {
-                System.out.println(indent + YELLOW + c[1] + RESET + "  " + c[2]);
-            }
+        for (CaseDescriptor descriptor : REGISTRY.getCasesForSubsystem(subsystem)) {
+            System.out.println(indent + YELLOW + descriptor.getCaseKey() + RESET + "  " + descriptor.getTitle());
         }
     }
 
     private static void printSubsystemHelp(String dbType, String subsystem, boolean missingCase) {
         String jarName = buildJarName();
-        String title = getSubsystemTitle(subsystem);
+        String title = REGISTRY.getSubsystemTitle(subsystem);
 
         if (missingCase) {
             System.out.println(RED + " 缺少 Case，请先选择子系统下的具体入口。" + RESET);
@@ -269,53 +223,36 @@ public class Main {
         System.out.println("\n" + BOLD + "可用 Case" + RESET);
         printCasesForSubsystem(subsystem, "  ");
 
-        if ("sql".equals(subsystem)) {
-            System.out.println("\n" + BOLD + "说明" + RESET);
-            System.out.println("  " + DIM + "stack_overflow 在 sql 子系统下默认使用 sql_depth，可选 mode: sql_depth | view_nest | join_bomb" + RESET);
-        } else if ("exec".equals(subsystem)) {
-            System.out.println("\n" + BOLD + "说明" + RESET);
-            System.out.println("  " + DIM + "stack_overflow 在 exec 子系统下默认使用 func_recurse，可选 mode: func_recurse | proc_recurse | trans_recurse" + RESET);
-        }
-
         System.out.println("\n" + BOLD + "示例" + RESET);
-        if ("session".equals(subsystem)) {
-            System.out.println(CYAN + "  java -jar " + jarName + " --db " + dbType + " session max_connection -mode conn_storm -duration 60000" + RESET);
-        } else if ("sql".equals(subsystem)) {
-            System.out.println(CYAN + "  java -jar " + jarName + " --db " + dbType + " sql plan_flip -duration 300000 -threads 16 -interval 60000" + RESET);
-        } else if ("exec".equals(subsystem)) {
-            System.out.println(CYAN + "  java -jar " + jarName + " --db " + dbType + " exec stack_overflow -mode func_recurse -duration 60000 -interval 1000" + RESET);
-            System.out.println(CYAN + "  java -jar " + jarName + " --db " + dbType + " exec read_amp_trap -duration 120000 -warmup 30000 -mutators 8 -scanners 4 -scan-mode mixed" + RESET);
-        } else if ("txn".equals(subsystem)) {
-            System.out.println(CYAN + "  java -jar " + jarName + " --db " + dbType + " txn uncommitted_txn -duration 60000 -table bmsql_stock -holders 2 -rows 500" + RESET);
-        } else if ("buffer".equals(subsystem)) {
-            System.out.println(CYAN + "  java -jar " + jarName + " --db " + dbType + " buffer memory_pressure -duration 60000 -batch 50 -threads 4" + RESET);
-        } else if ("storage".equals(subsystem)) {
-            System.out.println(CYAN + "  java -jar " + jarName + " --db " + dbType + " storage mvcc_bloat -duration 120000 -anchors 1 -mutators 8 -rows 20000" + RESET);
-        } else if ("log".equals(subsystem)) {
-            System.out.println(CYAN + "  java -jar " + jarName + " --db " + dbType + " log massive_rollback -duration 60000 -threads 16 -rate 0.7" + RESET);
+        for (CaseDescriptor descriptor : REGISTRY.getCasesForSubsystem(subsystem)) {
+            if (descriptor.getExampleArgs() != null && !descriptor.getExampleArgs().trim().isEmpty()) {
+                System.out.println(CYAN + "  " + buildExampleCommand(jarName, dbType, descriptor) + RESET);
+            }
         }
         System.out.println();
     }
 
     private static void printCaseHelp(CommandContext command) {
         String jarName = buildJarName();
+        CaseDescriptor descriptor = REGISTRY.findCaseDescriptor(command.subsystem, command.caseKey);
 
         System.out.println("\n" + BOLD + "Case 上下文" + RESET);
         System.out.printf("  %-14s %s\n", "数据库类型", command.dbType);
-        System.out.printf("  %-14s %s\n", "内核子系统", command.subsystem);
-        System.out.printf("  %-14s  %s\n", "不利类型", command.caseKey);
-        System.out.println("  " + DIM + findCaseDescription(command.subsystem, command.caseKey) + RESET);
-
-        if ("stack_overflow".equals(command.caseKey)) {
-            if ("sql".equals(command.subsystem)) {
-                System.out.println("  " + DIM + "当前子系统允许的 mode: sql_depth | view_nest | join_bomb" + RESET);
-            } else if ("exec".equals(command.subsystem)) {
-                System.out.println("  " + DIM + "当前子系统允许的 mode: func_recurse | proc_recurse | trans_recurse" + RESET);
+        System.out.printf("  %-14s %s (%s)\n", "内核子系统", REGISTRY.getSubsystemTitle(command.subsystem), command.subsystem);
+        System.out.printf("  %-14s %s\n", "不利类型", descriptor == null ? command.caseKey : descriptor.getCaseKey());
+        if (descriptor != null) {
+            System.out.println("  " + DIM + descriptor.getTitle() + RESET);
+            System.out.println("  " + DIM + descriptor.getDescription() + RESET);
+            if (descriptor.hasModeConstraint()) {
+                System.out.println("  " + DIM + "允许的 mode: " + joinModes(descriptor.getAllowedModes()) + RESET);
             }
         }
 
         System.out.println("\n" + BOLD + "调用形式" + RESET);
         System.out.println(CYAN + "  java -jar " + jarName + " [--db <DB_TYPE>] " + command.subsystem + " " + command.caseKey + " [OPTIONS]" + RESET);
+        if (descriptor != null && descriptor.getExampleArgs() != null && !descriptor.getExampleArgs().trim().isEmpty()) {
+            System.out.println(CYAN + "  " + buildExampleCommand(jarName, command.dbType, descriptor) + RESET);
+        }
         System.out.println();
     }
 
@@ -346,9 +283,9 @@ public class Main {
 
     private static void printCaseMismatch(String subsystem, String caseKey) {
         System.out.println(RED + BOLD + " Case 与子系统不匹配: " + caseKey + RESET);
-        System.out.println(DIM + " 当前子系统: " + getSubsystemTitle(subsystem) + " (" + subsystem + ")" + RESET);
+        System.out.println(DIM + " 当前子系统: " + REGISTRY.getSubsystemTitle(subsystem) + " (" + subsystem + ")" + RESET);
 
-        List<String> owners = findSubsystemsForCase(caseKey);
+        List<String> owners = REGISTRY.findSubsystemsForCase(caseKey);
         if (!owners.isEmpty()) {
             System.out.println(DIM + " 该 Case 可归属于: " + joinSubsystemTitles(owners) + RESET);
         } else {
@@ -408,7 +345,8 @@ public class Main {
     }
 
     private static String[] normalizeCaseArgs(String subsystem, String caseKey, String[] caseArgs) {
-        if (!"stack_overflow".equals(caseKey)) {
+        CaseDescriptor descriptor = REGISTRY.findCaseDescriptor(subsystem, caseKey);
+        if (descriptor == null || !descriptor.hasModeConstraint()) {
             return caseArgs;
         }
 
@@ -417,66 +355,14 @@ public class Main {
             mode = findOptionValue(caseArgs, "-type");
         }
 
-        if ("sql".equals(subsystem)) {
-            if (mode == null) {
-                return appendArgs(caseArgs, "-mode", "sql_depth");
-            }
-            if (!STACK_SQL_MODES.contains(mode.toLowerCase())) {
-                throw new IllegalArgumentException("sql 子系统下 stack_overflow 仅支持 mode: sql_depth | view_nest | join_bomb");
-            }
+        if (mode == null && descriptor.hasDefaultMode()) {
+            return appendArgs(caseArgs, "-mode", descriptor.getDefaultMode());
         }
-
-        if ("exec".equals(subsystem)) {
-            if (mode == null) {
-                return appendArgs(caseArgs, "-mode", "func_recurse");
-            }
-            if (!STACK_EXEC_MODES.contains(mode.toLowerCase())) {
-                throw new IllegalArgumentException("exec 子系统下 stack_overflow 仅支持 mode: func_recurse | proc_recurse | trans_recurse");
-            }
+        if (mode != null && !containsIgnoreCase(descriptor.getAllowedModes(), mode)) {
+            throw new IllegalArgumentException(subsystem + " 子系统下 " + caseKey + " 仅支持 mode: " + joinModes(descriptor.getAllowedModes()));
         }
 
         return caseArgs;
-    }
-
-    private static boolean isKnownSubsystem(String subsystem) {
-        return SUBSYSTEM_KEYWORDS.contains(subsystem.toLowerCase());
-    }
-
-    private static boolean isCaseAllowedInSubsystem(String subsystem, String caseKey) {
-        for (String[] c : CASE_CATALOG) {
-            if (subsystem.equals(c[0]) && caseKey.equals(c[1])) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static String getSubsystemTitle(String subsystem) {
-        for (String[] s : SUBSYSTEM_CATALOG) {
-            if (subsystem.equals(s[0])) {
-                return s[1];
-            }
-        }
-        return subsystem;
-    }
-
-    private static boolean subsystemHasCases(String subsystem) {
-        for (String[] c : CASE_CATALOG) {
-            if (subsystem.equals(c[0])) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static List<String> findSubsystemsForCase(String caseKey) {
-        List<String> owners = new ArrayList<String>();
-        for (String[] c : CASE_CATALOG) {
-            if (caseKey.equals(c[1]) && !owners.contains(c[0])) {
-                owners.add(c[0]);
-            }
-        }
-        return owners;
     }
 
     private static String joinSubsystemTitles(List<String> subsystems) {
@@ -486,18 +372,9 @@ public class Main {
                 builder.append(" | ");
             }
             String key = subsystems.get(i);
-            builder.append(getSubsystemTitle(key)).append(" (").append(key).append(")");
+            builder.append(REGISTRY.getSubsystemTitle(key)).append(" (").append(key).append(")");
         }
         return builder.toString();
-    }
-
-    private static String findCaseDescription(String subsystem, String caseKey) {
-        for (String[] c : CASE_CATALOG) {
-            if (subsystem.equals(c[0]) && caseKey.equals(c[1])) {
-                return c[2];
-            }
-        }
-        return "";
     }
 
     private static String buildJarName() {
@@ -552,34 +429,42 @@ public class Main {
         return merged;
     }
 
+    private static String buildExampleCommand(String jarName, String dbType, CaseDescriptor descriptor) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("java -jar ").append(jarName).append(" --db ").append(dbType).append(" ")
+                .append(descriptor.getSubsystem()).append(" ").append(descriptor.getCaseKey());
+        if (descriptor.getExampleArgs() != null && !descriptor.getExampleArgs().trim().isEmpty()) {
+            builder.append(" ").append(descriptor.getExampleArgs().trim());
+        }
+        return builder.toString();
+    }
+
+    private static boolean containsIgnoreCase(List<String> values, String target) {
+        for (String value : values) {
+            if (value.equalsIgnoreCase(target)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String joinModes(List<String> modes) {
+        StringBuilder builder = new StringBuilder();
+        for (int i = 0; i < modes.size(); i++) {
+            if (i > 0) {
+                builder.append(" | ");
+            }
+            builder.append(modes.get(i));
+        }
+        return builder.toString();
+    }
+
     private static String repeat(String value, int count) {
         StringBuilder builder = new StringBuilder(value.length() * count);
         for (int i = 0; i < count; i++) {
             builder.append(value);
         }
         return builder.toString();
-    }
-
-    private static BaseFaultInject createInjector(String dbType, String faultType) {
-        if (faultType == null) return null;
-        switch (faultType.toLowerCase()) {
-            case "max_connection": return new chaos.inject.MaxConnectionInject(dbType);
-            case "massive_rollback": return new chaos.inject.MassiveRollbackInject(dbType);
-            case "plan_flip": return new chaos.inject.PlanFlipInject(dbType);
-            case "stack_overflow": return new chaos.inject.StackOverflowInject(dbType);
-            case "memory":
-            case "memory_pressure": return new chaos.inject.MemoryPressureFault(dbType);
-            case "max_prepared": return new chaos.inject.MaxPreparedInject(dbType);
-            case "uncommitted_txn": return new chaos.inject.UncommittedTxnInject(dbType);
-            case "duplicate_txn": return new chaos.inject.DuplicateTxnInject(dbType);
-            case "deadlock_storm": return new chaos.inject.DeadlockStormInject(dbType);
-            case "mvcc_bloat": return new chaos.inject.MvccBloatInject(dbType);
-            case "read_amp_trap": return new chaos.inject.ReadAmpTrapInject(dbType);
-            case "base": return new BaseFaultInject(dbType, "BASE") {
-                @Override public void execute(String[] args) { this.printHelp(); }
-            };
-            default: return null;
-        }
     }
 
     private static final class CommandContext {

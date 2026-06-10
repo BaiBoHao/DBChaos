@@ -19,6 +19,8 @@ Example:
 from __future__ import annotations
 
 import argparse
+import csv
+import shlex
 import sys
 import xml.etree.ElementTree as ET
 from configparser import ConfigParser
@@ -30,6 +32,8 @@ XI_NS = "http://www.w3.org/2001/XInclude"
 ET.register_namespace("xi", XI_NS)
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+REGISTRY_DIR = PROJECT_ROOT / "resources" / "registry"
 DEFAULT_TEMPLATE_CONFIG = "template/opengauss_tpcc_config_chaosblade.xml"
 DEFAULT_TEMPLATE_WORKER = "template/tpcc_worker.xml"
 DEFAULT_TEMPLATE_SUITES = "template/fault-cases-generic.xml"
@@ -38,6 +42,7 @@ DEFAULT_OUTPUT_WORKER = "output/dbchaosTpcc_worker.xml"
 DEFAULT_OUTPUT_SUITES = "output/fault-cases-generated.xml"
 DEFAULT_SUITE_NAME = "dbchaos-generated-suite"
 DEFAULT_SELECTED_CASE_KEYS: Tuple[str, ...] = ("all",)
+GENERATOR_PROFILE_FILE = REGISTRY_DIR / "generator_profiles.tsv"
 
 
 @dataclass(frozen=True)
@@ -55,198 +60,28 @@ class FaultSpec:
     default_during_sec: int = 60
 
 
-FAULT_SPECS: Tuple[FaultSpec, ...] = (
-    FaultSpec(
-        id=201,
-        key="plan_flip",
-        subsystem="sql",
-        case_keyword="plan_flip",
-        fault_type="plan_flip",
-        description="DBChaos Plan Flip",
-        category="SQL parsing and optimization",
-        args=("-duration", "60000", "-threads", "16", "-count", "1000000", "-interval", "60000"),
-    ),
-    FaultSpec(
-        id=202,
-        key="max_connection_conn_storm",
-        subsystem="session",
-        case_keyword="max_connection",
-        fault_type="max_connection",
-        description="DBChaos Connection Storm",
-        category="connection management",
-        args=("-mode", "conn_storm", "-count", "200", "-duration", "60000"),
-    ),
-    FaultSpec(
-        id=203,
-        key="max_connection_conn_exhaustion",
-        subsystem="session",
-        case_keyword="max_connection",
-        fault_type="max_connection",
-        description="DBChaos Connection Exhaustion",
-        category="connection management",
-        args=("-mode", "conn_exhaustion", "-count", "200", "-duration", "60000"),
-    ),
-    FaultSpec(
-        id=204,
-        key="max_connection_thread_saturation",
-        subsystem="session",
-        case_keyword="max_connection",
-        fault_type="max_connection",
-        description="DBChaos Thread Pool Saturation",
-        category="execution engine",
-        args=("-mode", "thread_saturation", "-count", "32", "-duration", "60000"),
-    ),
-    FaultSpec(
-        id=205,
-        key="uncommitted_txn",
-        subsystem="txn",
-        case_keyword="uncommitted_txn",
-        fault_type="uncommitted_txn",
-        description="DBChaos Uncommitted Transaction Lock",
-        category="transaction concurrency management",
-        args=("-duration", "60000", "-table", "bmsql_stock", "-holders", "2", "-rows", "500"),
-    ),
-    FaultSpec(
-        id=206,
-        key="duplicate_txn_update",
-        subsystem="txn",
-        case_keyword="duplicate_txn",
-        fault_type="duplicate_txn",
-        description="DBChaos Hot Row Update Conflict",
-        category="transaction concurrency management",
-        args=("-sessions", "50", "-duration", "60", "-mode", "UPDATE"),
-    ),
-    FaultSpec(
-        id=207,
-        key="duplicate_txn_insert",
-        subsystem="txn",
-        case_keyword="duplicate_txn",
-        fault_type="duplicate_txn",
-        description="DBChaos Duplicate Insert Conflict",
-        category="transaction concurrency management",
-        args=("-sessions", "50", "-duration", "60", "-mode", "INSERT"),
-    ),
-    FaultSpec(
-        id=208,
-        key="stack_overflow_func_recurse",
-        subsystem="exec",
-        case_keyword="stack_overflow",
-        fault_type="stack_overflow",
-        description="DBChaos Function Stack Overflow",
-        category="execution engine",
-        args=("-mode", "func_recurse", "-duration", "60000", "-interval", "1000"),
-    ),
-    FaultSpec(
-        id=209,
-        key="stack_overflow_proc_recurse",
-        subsystem="exec",
-        case_keyword="stack_overflow",
-        fault_type="stack_overflow",
-        description="DBChaos Procedure Stack Overflow",
-        category="execution engine",
-        args=("-mode", "proc_recurse", "-duration", "60000", "-interval", "1000"),
-    ),
-    FaultSpec(
-        id=210,
-        key="stack_overflow_trans_recurse",
-        subsystem="exec",
-        case_keyword="stack_overflow",
-        fault_type="stack_overflow",
-        description="DBChaos Transaction Stack Overflow",
-        category="execution engine",
-        args=("-mode", "trans_recurse", "-duration", "60000", "-interval", "1000"),
-    ),
-    FaultSpec(
-        id=211,
-        key="stack_overflow_sql_depth",
-        subsystem="sql",
-        case_keyword="stack_overflow",
-        fault_type="stack_overflow",
-        description="DBChaos SQL Depth Stack Overflow",
-        category="SQL parsing and optimization",
-        args=("-mode", "sql_depth", "-duration", "60000", "-interval", "1000"),
-    ),
-    FaultSpec(
-        id=212,
-        key="stack_overflow_view_nest",
-        subsystem="sql",
-        case_keyword="stack_overflow",
-        fault_type="stack_overflow",
-        description="DBChaos Nested View Stack Overflow",
-        category="SQL parsing and optimization",
-        args=("-mode", "view_nest", "-duration", "60000", "-interval", "5000"),
-    ),
-    FaultSpec(
-        id=213,
-        key="stack_overflow_join_bomb",
-        subsystem="sql",
-        case_keyword="stack_overflow",
-        fault_type="stack_overflow",
-        description="DBChaos Join Search Stack Overflow",
-        category="SQL parsing and optimization",
-        args=("-mode", "join_bomb", "-duration", "60000", "-interval", "5000"),
-    ),
-    FaultSpec(
-        id=214,
-        key="massive_rollback",
-        subsystem="log",
-        case_keyword="massive_rollback",
-        fault_type="massive_rollback",
-        description="DBChaos Massive Transaction Rollback",
-        category="storage engine",
-        args=("-duration", "60000", "-threads", "16", "-rate", "0.7"),
-    ),
-    FaultSpec(
-        id=215,
-        key="memory_pressure",
-        subsystem="buffer",
-        case_keyword="memory_pressure",
-        fault_type="memory_pressure",
-        description="DBChaos Memory Pressure",
-        category="buffer management",
-        args=("-duration", "60000", "-batch", "50", "-threads", "4"),
-    ),
-    FaultSpec(
-        id=216,
-        key="max_prepared",
-        subsystem="txn",
-        case_keyword="max_prepared",
-        fault_type="max_prepared",
-        description="DBChaos Prepared Transaction Limit",
-        category="transaction concurrency management",
-        args=("-count", "201", "-duration", "60", "-concurrency", "50"),
-    ),
-    FaultSpec(
-        id=217,
-        key="deadlock_storm",
-        subsystem="txn",
-        case_keyword="deadlock_storm",
-        fault_type="deadlock_storm",
-        description="DBChaos Deadlock Storm",
-        category="transaction concurrency management",
-        args=("-duration", "60000", "-table", "bmsql_stock", "-anchors", "2", "-anchor-rows", "20", "-waiters", "16", "-hot-rows", "32"),
-    ),
-    FaultSpec(
-        id=218,
-        key="mvcc_bloat",
-        subsystem="storage",
-        case_keyword="mvcc_bloat",
-        fault_type="mvcc_bloat",
-        description="DBChaos MVCC Bloat",
-        category="storage engine",
-        args=("-duration", "120000", "-anchors", "1", "-mutators", "8", "-rows", "20000"),
-    ),
-    FaultSpec(
-        id=219,
-        key="read_amp_trap",
-        subsystem="exec",
-        case_keyword="read_amp_trap",
-        fault_type="read_amp_trap",
-        description="DBChaos Read Amplification Trap",
-        category="execution engine",
-        args=("-duration", "120000", "-warmup", "30000", "-mutators", "8", "-scanners", "4", "-scan-mode", "mixed"),
-    ),
-)
+def load_fault_specs() -> Tuple[FaultSpec, ...]:
+    specs: List[FaultSpec] = []
+    with GENERATOR_PROFILE_FILE.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        for row in reader:
+            specs.append(
+                FaultSpec(
+                    id=int(row["id"]),
+                    key=row["key"].strip(),
+                    subsystem=row["subsystem"].strip(),
+                    case_keyword=row["case_key"].strip(),
+                    fault_type=row["case_key"].strip(),
+                    description=row["description"].strip(),
+                    category=row["category"].strip(),
+                    args=tuple(shlex.split(row["args"].strip())),
+                    default_during_sec=int(row["during_sec"]),
+                )
+            )
+    return tuple(specs)
+
+
+FAULT_SPECS: Tuple[FaultSpec, ...] = load_fault_specs()
 
 FAULT_BY_KEY: Dict[str, FaultSpec] = {spec.key: spec for spec in FAULT_SPECS}
 FAULT_BY_ID: Dict[int, FaultSpec] = {spec.id: spec for spec in FAULT_SPECS}

@@ -12,3 +12,8 @@
   DBChaos 与 TPC-C / ChaosBlade 对接配置生成器目录。
   详细说明见：
   [config_generator/README.md](./config_generator/README.md)
+
+- `scaffold/`
+  新增不利 Case 的开发模板与脚手架脚本。
+  详细说明见：
+  [scaffold/README.md](./scaffold/README.md)
