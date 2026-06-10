@@ -5,7 +5,7 @@
 - Project root: `E:\DBChaos`
 - Project UUID: `27f12b1d-6d86-4c59-a60b-509583178478`
 - Main branch: `main`
-- Current working branch: `20260520`
+- Current working branch: `20260610`
 - Related project indexes: none recorded
 
 ## Reading Rules
@@ -42,3 +42,4 @@
 - [Scripts directory reorg](20260528T113520-scripts-directory-reorg.md) - Renamed Linux build script, removed the unused Windows shell build script, moved connection probes under scripts, and moved the config generator into a dedicated subdirectory.
 - [DB connection probe draft](20260528T111242-db-connection-probe-draft.md) - Added a standalone database connection probe feature and runnable PowerShell script to validate db.properties before fault injection.
 - [Demo alignment draft](20260528T133646-demo-alignment-draft.md) - Updated demo.sh and demo README so the BenchmarkSQL workflow, connection probe, and adversity injection command structure match the current CLI.
+- [Branch 20260610 setup](20260610T222504-branch-20260610.md) - Created branch `20260610` from the latest `20260520` and ignored legacy generated XML files under `scripts/` on the server checkout.

@@ -26,3 +26,6 @@ scripts/config_generator/dbchaosTpcc_worker.xml
 scripts/config_generator/fault-cases-generated.xml
 
 DBChaos-0.0.1.jar
+scripts/opengauss_tpcc_config_chaosblade.xml
+scripts/tpcc_worker.xml
+scripts/fault-cases-generic.xml
