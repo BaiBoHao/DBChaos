@@ -5,7 +5,7 @@
 - Project root: `E:\DBChaos`
 - Project UUID: `27f12b1d-6d86-4c59-a60b-509583178478`
 - Main branch: `main`
-- Current working branch: `20260610`
+- Current working branch: `codex/json-registry-migration`
 - Related project indexes: none recorded
 
 ## Reading Rules
@@ -45,5 +45,6 @@
 - [Branch 20260610 setup](20260610T222504-branch-20260610.md) - Created branch `20260610` from the latest `20260520` and ignored legacy generated XML files under `scripts/` on the server checkout.
 - [Case registry refactor](20260611T015046-case-registry-refactor.md) - Replaced hardcoded CLI and generator case catalogs with registry files, added scaffolding templates/scripts, and wired automatic linkage across help, config generation, and new Case creation.
 - [JSON registry migration](20260611T020915-json-registry-migration.md) - Replaced TSV-based registry files with a single registry.json, updated scaffold/config generation, and validated linkage with quota/test_case.
+- [Server sync and packaging](20260611T022230-server-sync-packaging.md) - Pushed the JSON registry branch, synced the server checkout to the same commit, and completed Linux packaging on the server.
 - [Probe and config layout](20260611T004913-probe-and-config-layout.md) - Added a reusable preflight check, moved probe scripts under scripts/probe, and organized config generator inputs and outputs into dedicated subdirectories.
 - [Scripts README UTF-8 fix](20260611T010307-scripts-readme-utf8-fix.md) - Restored the server-side scripts/README.md to proper UTF-8 content after it degraded into question-mark placeholders.
