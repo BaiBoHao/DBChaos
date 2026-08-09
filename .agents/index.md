@@ -50,3 +50,4 @@
 - [Scripts README UTF-8 fix](20260611T010307-scripts-readme-utf8-fix.md) - Restored the server-side scripts/README.md to proper UTF-8 content after it degraded into question-mark placeholders.
 - [Merge latest remote into main](20260809T213129-merge-latest-remote-into-main.md) - Identified origin/20260630 as the newest descendant branch, merged it into main, retained project agent records, and validated the build and CLI.
 - [PPT UTF-8 fix](20260611T124712-ppt-utf8-fix.md) - Regenerated the structure-page PPT variant with UTF-8-safe Chinese text while keeping all existing content slides unchanged.
+- [Branch consolidation](20260809T215853-branch-consolidation.md) - Consolidated merged local and remote branches into main while preserving the unmerged remote zzk branch and pending PPT record.
