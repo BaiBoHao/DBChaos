@@ -114,14 +114,14 @@ public class DuplicateTxnInject extends BaseFaultInject {
 
     @Override
     public void printHelp() {
-        System.out.println("\n\033[1m故障画像用法: \033[33mduplicate_txn\033[0m");
+        System.out.println("\n\033[1m不利 Case 用法: \033[33mtxn duplicate_txn\033[0m");
         System.out.println("  模拟热点行重复事务执行，诱发行锁等待、超时、死锁或唯一约束冲突。");
         System.out.println("\n\033[1m参数列表:\033[0m");
         System.out.printf("  %-15s %s\n", "-sessions", "选填。并发会话数 (默认 50)");
         System.out.printf("  %-15s %s\n", "-duration", "选填。持续时长，单位秒 (默认 30)");
         System.out.printf("  %-15s %s\n", "-mode", "选填。UPDATE 或 INSERT (默认 UPDATE)");
         System.out.println("\n\033[1m示例:\033[0m");
-        System.out.println("\033[36m  ... duplicate_txn -sessions 50 -duration 60 -mode UPDATE\033[0m");
+        System.out.println("\033[36m  java -jar DBChaos-0.0.1.jar --db opengauss txn duplicate_txn -sessions 50 -duration 60 -mode UPDATE\033[0m");
     }
 
     private void prepareEnvironment(String tableName, String mode) throws SQLException {

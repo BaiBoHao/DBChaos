@@ -3,21 +3,28 @@ package chaos;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Properties;
 import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import chaos.core.BaseFaultInject;
+import chaos.registry.CaseDescriptor;
+import chaos.registry.CaseRegistry;
+import chaos.registry.SubsystemDescriptor;
 
 /**
  * DBChaos 项目启动主类。
- * 优化了执行流：支持静默执行、参数校验及更美观的 UI 面板。
+ * 负责统一解析命令入口、数据库类型、内核子系统与具体不利 Case。
  */
 public class Main {
-    private static Properties appProps = new Properties();
+    private static final Properties appProps = new Properties();
+    private static final Properties dbProps = new Properties();
+    private static final CaseRegistry REGISTRY = CaseRegistry.getInstance();
 
     // 颜色常量
     private static final String RESET  = "\u001B[0m";
@@ -28,14 +35,8 @@ public class Main {
     private static final String BOLD   = "\u001B[1m";
     private static final String DIM    = "\u001B[2m";
 
-    // 常规变量
     private static final Set<String> SUPPORTED_DBS = new HashSet<>(Arrays.asList(
         "opengauss", "og", "postgresql", "pg", "mysql", "oceanbase", "ob"
-    ));
-
-    private static final Set<String> FAULT_KEYWORDS = new HashSet<>(Arrays.asList(
-        "plan_flip", "max_connection", "stack_overflow", "massive_rollback", 
-        "memory", "memory_pressure", "max_prepared", "uncommitted_txn", "duplicate_txn"
     ));
 
     static {
@@ -44,177 +45,418 @@ public class Main {
                 appProps.load(new InputStreamReader(in, StandardCharsets.UTF_8));
             }
         } catch (Exception ignored) {}
+
+        try (InputStream in = Main.class.getResourceAsStream("/db.properties")) {
+            if (in != null) {
+                dbProps.load(new InputStreamReader(in, StandardCharsets.UTF_8));
+            }
+        } catch (Exception ignored) {}
     }
 
     public static void main(String[] args) {
         String[] loggers = {
-            "org.opengauss",    // openGauss 驱动
-            "org.postgresql",   // PostgreSQL 驱动
-            "com.mysql.cj",     // MySQL 现代驱动 (Connector/J 8.0+)
-            "com.mysql"         // 兼容旧版或通用 MySQL 驱动
+            "org.opengauss",
+            "org.postgresql",
+            "com.mysql.cj",
+            "com.mysql"
         };
 
         for (String loggerName : loggers) {
             Logger logger = Logger.getLogger(loggerName);
-            // 设置为 WARNING，只看报错，不看握手信息
             logger.setLevel(Level.WARNING);
         }
 
-        
-        // 1. 帮助触发检查：无参数或单独 -h/--help 显示全局帮助。
-        // 带故障画像的 -h/--help 交给具体 injector，便于输出画像级帮助。
-        if (args.length == 0 || (args.length == 1 && isHelpRequested(args))) {
+        if (args.length == 0 || (args.length == 1 && isHelpToken(args[0]))) {
             showFullHelp();
             return;
         }
 
-        // 2. 参数基本校验
-        String firstArg = args[0].toLowerCase();
-        if (FAULT_KEYWORDS.contains(firstArg)) {
-            System.err.println(RED + BOLD + " ✘ 格式错误: 命令行首个参数必须是 [数据库类型]" + RESET);
-            System.err.println(YELLOW + " ➤ 漏写数据库？正确用法: java -jar DBChaos.jar opengauss " + firstArg + " ..." + RESET);
+        resetGlobalOverrides();
+
+        CommandContext command;
+        try {
+            command = parseCommandContext(args);
+        } catch (IllegalArgumentException e) {
+            System.out.println(RED + BOLD + " 参数错误: " + RESET + e.getMessage());
             return;
         }
 
-        if (!SUPPORTED_DBS.contains(firstArg)) {
-            System.err.println(RED + BOLD + " ✘ 错误: 不支持的数据库类型 [" + args[0] + "]" + RESET);
-            System.out.println(DIM + " 受支持的数据库: " + RESET + CYAN + SUPPORTED_DBS + RESET);
+        if (!SUPPORTED_DBS.contains(command.dbType.toLowerCase())) {
+            printUnsupportedDb(command.dbType);
             return;
         }
 
-        if (args.length < 2) {
-            System.out.println(GREEN + " ➤ 已选数据库: " + RESET + BOLD + firstArg + RESET);
-            System.err.println(RED + " ✘ 缺失参数: 请指定 [故障画像]" + RESET);
-            printFaultTable();
+        if (command.subsystem == null) {
+            showFullHelp();
             return;
         }
 
-
-        // 2. 基础参数解析
-        if (args.length == 1) {
-            System.out.println(YELLOW + BOLD + " ➤ 已选数据库: " + RESET + args[0]);
-            System.out.println(RED + " ✘ 缺失参数: 请指定 [故障画像关键字]" + RESET);
-            System.out.println(DIM + "\n 可用画像列表：" + RESET);
-            printFaultTable();
+        if (SUPPORTED_DBS.contains(command.subsystem)) {
+            printLegacyDbSyntaxHint(command.subsystem);
             return;
         }
 
-        String dbType = args[0];
-        String faultType = args[1];
+        if (REGISTRY.isKnownCaseKeyword(command.subsystem)) {
+            printMissingSubsystemHint(command.subsystem);
+            return;
+        }
 
-        // 3. 全局覆盖参数处理（不干扰故障指令执行）
+        if (!REGISTRY.isKnownSubsystem(command.subsystem)) {
+            printUnknownSubsystem(command.subsystem);
+            return;
+        }
+
+        if (command.caseKey == null) {
+            printSubsystemHelp(command.dbType, command.subsystem, !command.helpRequested);
+            return;
+        }
+
+        if (REGISTRY.findCaseDescriptor(command.subsystem, command.caseKey) == null) {
+            printCaseMismatch(command.subsystem, command.caseKey);
+            return;
+        }
+
+        try {
+            command.caseArgs = normalizeCaseArgs(command.subsystem, command.caseKey, command.caseArgs);
+        } catch (IllegalArgumentException e) {
+            System.err.println(RED + BOLD + " 参数错误: " + RESET + e.getMessage());
+            return;
+        }
+
         parseGlobalOverrides(args);
 
-        // 4. 路由分发
-        BaseFaultInject injector = createInjector(dbType, faultType);
-
+        BaseFaultInject injector = REGISTRY.createInjector(command.dbType, command.subsystem, command.caseKey);
         if (injector == null) {
-            System.err.println(RED + BOLD + " ✘ 错误: 未知的故障画像 [" + faultType + "]" + RESET);
-            printFaultTable();
+            System.out.println(RED + BOLD + " 未知的注入入口: " + command.caseKey + RESET);
+            printSubsystemHelp(command.dbType, command.subsystem, false);
             return;
         }
 
-        // 5. 执行注入
-        try {
-            String[] subArgs = new String[args.length - 2];
-            System.arraycopy(args, 2, subArgs, 0, args.length - 2);
-            injector.execute(subArgs);
-        } catch (Exception e) {
-            System.err.println("\n" + RED + BOLD + " ✘ 执行异常: " + RESET + e.getMessage());
+        if (command.helpRequested) {
+            printCaseHelp(command);
+            injector.printHelp();
+            return;
         }
-    }
 
-    private static boolean isHelpRequested(String[] args) {
-        return Arrays.stream(args).anyMatch(arg -> arg.equals("-h") || arg.equals("--help"));
+        try {
+            injector.execute(command.caseArgs);
+        } catch (Exception e) {
+            System.out.println("\n" + RED + BOLD + " 执行异常: " + RESET + e.getMessage());
+        }
     }
 
     private static void showFullHelp() {
         printWelcomeScreen();
-        printUsage();
+        printTopLevelUsage();
     }
 
     private static void printWelcomeScreen() {
         String banner = appProps.getProperty("cli.banner", "DBChaos");
         String version = appProps.getProperty("cli.version", "1.0.0");
-        String author = appProps.getProperty("cli.author", "baibh");
+        String author = appProps.getProperty("cli.author", "西北工业大学");
+        String features = appProps.getProperty("cli.features", "");
 
         System.out.println(CYAN + BOLD + banner + RESET);
         System.out.println(BOLD + " " + appProps.getProperty("cli.description") + RESET);
-        System.out.println(DIM + " Version: " + RESET + GREEN + version + RESET + 
-                           DIM + " | License: " + RESET + "Apache 2.0" + 
-                           DIM + " | Author: " + RESET + YELLOW + author + RESET);
-        System.out.println(CYAN + " " + repeat("=", 78) + RESET);
+        if (!features.trim().isEmpty()) {
+            System.out.println(DIM + " " + features + RESET);
+        }
+        System.out.println(
+            DIM + " Version " + RESET + GREEN + version + RESET +
+            DIM + " | License " + RESET + "Apache 2.0" +
+            DIM + " | Author " + RESET + YELLOW + author + RESET
+        );
+        System.out.println(CYAN + " " + repeat("=", 96) + RESET);
     }
 
-    private static void printUsage() {
-        String name = appProps.getProperty("cli.name", "DBChaos");
-        System.out.println("\n" + BOLD + "用法 (Usage):" + RESET);
-        System.out.println(YELLOW + "  java -jar " + name + ".jar <DB_TYPE> <FAULT_TYPE> [OPTIONS]" + RESET);
-        
-        System.out.println("\n" + BOLD + "可用画像 (Available Fault Profiles):" + RESET);
-        printFaultTable();
+    private static void printTopLevelUsage() {
+        String jarName = buildJarName();
+        System.out.println("\n" + BOLD + "用法" + RESET);
+        System.out.println(YELLOW + "  java -jar " + jarName + " [--db <DB_TYPE>] <SUBSYSTEM> <CASE> [OPTIONS]" + RESET);
+        System.out.println(DIM + "  如未显式传入 --db，则默认读取 resources/db.properties 中的 type。" + RESET);
+        System.out.println(DIM + "  支持数据库: opengauss | postgresql | mysql" + RESET);
 
-        System.out.println("\n" + BOLD + "通用选项 (Global Overrides):" + RESET);
-        System.out.printf("  %-20s %s\n", "-url <jdbc_url>", "手动覆盖数据库连接地址");
-        System.out.printf("  %-20s %s\n", "-user <username>", "手动覆盖用户名");
-        System.out.printf("  %-20s %s\n", "-password <pwd>", "手动覆盖密码");
+        System.out.println("\n" + BOLD + "内核子系统" + RESET);
+        printSubsystemCatalog(true);
 
-        System.out.println("\n" + BOLD + "示例 (Example):" + RESET);
-        System.out.println(CYAN + "  java -jar " + name + ".jar opengauss plan_flip -threads 16" + RESET);
+        System.out.println("\n" + BOLD + "通用选项" + RESET);
+        System.out.printf("  %-20s %s\n", "--db <db_type>", "覆盖数据库类型");
+        System.out.printf("  %-20s %s\n", "-url <jdbc_url>", "覆盖数据库连接地址");
+        System.out.printf("  %-20s %s\n", "-user <username>", "覆盖数据库用户名");
+        System.out.printf("  %-20s %s\n", "-password <pwd>", "覆盖数据库密码");
+
+        System.out.println("\n" + BOLD + "示例" + RESET);
+        for (CaseDescriptor descriptor : REGISTRY.getExampleCases(6)) {
+            System.out.println(CYAN + "  " + buildExampleCommand(jarName, "opengauss", descriptor) + RESET);
+        }
+        System.out.println(DIM + "\n帮助：" + RESET);
+        System.out.println(DIM + "  java -jar " + jarName + " sql --help" + RESET);
+        System.out.println(DIM + "  java -jar " + jarName + " txn duplicate_txn --help" + RESET);
         System.out.println();
     }
 
-    private static void printFaultTable() {
-        System.out.printf(DIM + "  %-18s | %s\n" + RESET, "画像关键字 (ID)", "功能描述 (Description)");
-        System.out.println("  " + repeat("-", 60));
-        String[][] faults = {
-            {"plan_flip", "执行计划跳变"},
-            {"max_connection", "数据库最大连接数 (线程池饱和/连接耗尽)"},
-            {"stack_overflow", "递归导致栈溢出"},
-            {"massive_rollback", "大规模事务回滚"},
-            {"memory_pressure", "数据库内存溢出或占用过高"},
-            {"max_prepared", "二阶段提交 Prepared Transaction 上限挤兑"},
-            {"uncommitted_txn", "长事务导致的行锁持有故障"},
-            {"duplicate_txn", "热点行高度并发冲突"}
-        };
-        for (String[] f : faults) {
-            System.out.printf("  " + YELLOW + "%-18s" + RESET + " | %s\n", f[0], f[1]);
+    private static void printSubsystemCatalog(boolean includeCases) {
+        for (SubsystemDescriptor subsystem : REGISTRY.getSubsystems()) {
+            System.out.println("  " + CYAN + subsystem.getKey() + RESET + "  " + BOLD + subsystem.getTitle() + RESET);
+            if (includeCases) {
+                printCasesForSubsystem(subsystem.getKey(), "    ");
+            }
         }
     }
 
-    private static BaseFaultInject createInjector(String dbType, String faultType) {
-        if (faultType == null) return null;
-        switch (faultType.toLowerCase()) {
-            // 最大连接相关故障
-            case "max_connection": return new chaos.inject.MaxConnectionInject(dbType);
-            // 大量事务回滚
-            case "massive_rollback": return new chaos.inject.MassiveRollbackInject(dbType);
-            // 计划跳变
-            case "plan_flip": return new chaos.inject.PlanFlipInject(dbType);
-            // 爆栈
-            case "stack_overflow": return new chaos.inject.StackOverflowInject(dbType);
-            // 内存相关
-            case "memory":
-            case "memory_pressure": return new chaos.inject.MemoryPressureFault(dbType);
-            // 二阶段提交 Prepared Transaction 上限
-            case "max_prepared": return new chaos.inject.MaxPreparedInject(dbType);
-            // 事务不提交
-            case "uncommitted_txn": return new chaos.inject.UncommittedTxnInject(dbType);
-            // 热点行重复事务/冲突
-            case "duplicate_txn": return new chaos.inject.DuplicateTxnInject(dbType);
-            case "base": return new BaseFaultInject(dbType, "BASE") {
-                @Override public void execute(String[] args) { this.printHelp(); }
-            };
-            default: return null;
+    private static void printCasesForSubsystem(String subsystem, String indent) {
+        for (CaseDescriptor descriptor : REGISTRY.getCasesForSubsystem(subsystem)) {
+            System.out.println(indent + YELLOW + descriptor.getCaseKey() + RESET + "  " + descriptor.getTitle());
         }
+    }
+
+    private static void printSubsystemHelp(String dbType, String subsystem, boolean missingCase) {
+        String jarName = buildJarName();
+        String title = REGISTRY.getSubsystemTitle(subsystem);
+
+        if (missingCase) {
+            System.out.println(RED + " 缺少 Case，请先选择子系统下的具体入口。" + RESET);
+        }
+
+        System.out.println("\n" + BOLD + "内核子系统" + RESET);
+        System.out.println("  " + CYAN + subsystem + RESET + "  " + BOLD + title + RESET);
+        System.out.println("\n" + BOLD + "可用 Case" + RESET);
+        printCasesForSubsystem(subsystem, "  ");
+
+        System.out.println("\n" + BOLD + "示例" + RESET);
+        for (CaseDescriptor descriptor : REGISTRY.getCasesForSubsystem(subsystem)) {
+            if (descriptor.getExampleArgs() != null && !descriptor.getExampleArgs().trim().isEmpty()) {
+                System.out.println(CYAN + "  " + buildExampleCommand(jarName, dbType, descriptor) + RESET);
+            }
+        }
+        System.out.println();
+    }
+
+    private static void printCaseHelp(CommandContext command) {
+        String jarName = buildJarName();
+        CaseDescriptor descriptor = REGISTRY.findCaseDescriptor(command.subsystem, command.caseKey);
+
+        System.out.println("\n" + BOLD + "Case 上下文" + RESET);
+        System.out.printf("  %-14s %s\n", "数据库类型", command.dbType);
+        System.out.printf("  %-14s %s (%s)\n", "内核子系统", REGISTRY.getSubsystemTitle(command.subsystem), command.subsystem);
+        System.out.printf("  %-14s %s\n", "不利类型", descriptor == null ? command.caseKey : descriptor.getCaseKey());
+        if (descriptor != null) {
+            System.out.println("  " + DIM + descriptor.getTitle() + RESET);
+            System.out.println("  " + DIM + descriptor.getDescription() + RESET);
+            if (descriptor.hasModeConstraint()) {
+                System.out.println("  " + DIM + "允许的 mode: " + joinModes(descriptor.getAllowedModes()) + RESET);
+            }
+        }
+
+        System.out.println("\n" + BOLD + "调用形式" + RESET);
+        System.out.println(CYAN + "  java -jar " + jarName + " [--db <DB_TYPE>] " + command.subsystem + " " + command.caseKey + " [OPTIONS]" + RESET);
+        if (descriptor != null && descriptor.getExampleArgs() != null && !descriptor.getExampleArgs().trim().isEmpty()) {
+            System.out.println(CYAN + "  " + buildExampleCommand(jarName, command.dbType, descriptor) + RESET);
+        }
+        System.out.println();
+    }
+
+    private static void printUnsupportedDb(String dbType) {
+        System.out.println(RED + BOLD + " 不支持的数据库类型: " + dbType + RESET);
+        System.out.println(DIM + " 支持的数据库类型: " + RESET + CYAN + "opengauss | postgresql | mysql" + RESET);
+    }
+
+    private static void printLegacyDbSyntaxHint(String dbTypeToken) {
+        String jarName = buildJarName();
+        System.out.println(RED + BOLD + " 命令结构已调整" + RESET);
+        System.out.println(DIM + " 数据库类型不再占用第一个位置，请使用 --db 作为可选项，或直接使用 db.properties 中的默认 type。" + RESET);
+        System.out.println(YELLOW + " 示例: java -jar " + jarName + " --db " + dbTypeToken + " sql plan_flip ..." + RESET);
+    }
+
+    private static void printMissingSubsystemHint(String caseKey) {
+        String jarName = buildJarName();
+        System.out.println(RED + BOLD + " 缺少内核子系统" + RESET);
+        System.out.println(DIM + " 当前版本要求先选择 SUBSYSTEM，再进入具体 CASE。" + RESET);
+        System.out.println(YELLOW + " 示例: java -jar " + jarName + " sql " + caseKey + " ..." + RESET);
+    }
+
+    private static void printUnknownSubsystem(String subsystem) {
+        System.out.println(RED + BOLD + " 未知的内核子系统: " + subsystem + RESET);
+        System.out.println(DIM + " 请从下列子系统中选择：" + RESET);
+        printSubsystemCatalog(false);
+    }
+
+    private static void printCaseMismatch(String subsystem, String caseKey) {
+        System.out.println(RED + BOLD + " Case 与子系统不匹配: " + caseKey + RESET);
+        System.out.println(DIM + " 当前子系统: " + REGISTRY.getSubsystemTitle(subsystem) + " (" + subsystem + ")" + RESET);
+
+        List<String> owners = REGISTRY.findSubsystemsForCase(caseKey);
+        if (!owners.isEmpty()) {
+            System.out.println(DIM + " 该 Case 可归属于: " + joinSubsystemTitles(owners) + RESET);
+        } else {
+            System.out.println(DIM + " 当前未找到该 Case 的归属定义。" + RESET);
+        }
+        printSubsystemHelp(resolveDefaultDbType(), subsystem, false);
+    }
+
+    private static CommandContext parseCommandContext(String[] args) {
+        CommandContext command = new CommandContext();
+        command.dbType = resolveDefaultDbType();
+
+        List<String> positional = new ArrayList<String>();
+        List<String> caseArgs = new ArrayList<String>();
+
+        for (int i = 0; i < args.length; i++) {
+            String arg = args[i];
+
+            if ("--db".equalsIgnoreCase(arg)) {
+                if (i + 1 >= args.length) {
+                    throw new IllegalArgumentException("--db 缺少数据库类型值");
+                }
+                command.dbType = args[++i].toLowerCase();
+                continue;
+            }
+
+            if ("-url".equalsIgnoreCase(arg) || "-user".equalsIgnoreCase(arg) || "-password".equalsIgnoreCase(arg)) {
+                if (i + 1 >= args.length) {
+                    throw new IllegalArgumentException(arg + " 缺少参数值");
+                }
+                caseArgs.add(arg);
+                caseArgs.add(args[++i]);
+                continue;
+            }
+
+            if (isHelpToken(arg)) {
+                command.helpRequested = true;
+                continue;
+            }
+
+            if (positional.size() < 2) {
+                positional.add(arg.toLowerCase());
+            } else {
+                caseArgs.add(arg);
+            }
+        }
+
+        if (!positional.isEmpty()) {
+            command.subsystem = positional.get(0);
+        }
+        if (positional.size() > 1) {
+            command.caseKey = positional.get(1);
+        }
+
+        command.caseArgs = caseArgs.toArray(new String[caseArgs.size()]);
+        return command;
+    }
+
+    private static String[] normalizeCaseArgs(String subsystem, String caseKey, String[] caseArgs) {
+        CaseDescriptor descriptor = REGISTRY.findCaseDescriptor(subsystem, caseKey);
+        if (descriptor == null || !descriptor.hasModeConstraint()) {
+            return caseArgs;
+        }
+
+        String mode = findOptionValue(caseArgs, "-mode");
+        if (mode == null) {
+            mode = findOptionValue(caseArgs, "-type");
+        }
+
+        if (mode == null && descriptor.hasDefaultMode()) {
+            return appendArgs(caseArgs, "-mode", descriptor.getDefaultMode());
+        }
+        if (mode != null && !containsIgnoreCase(descriptor.getAllowedModes(), mode)) {
+            throw new IllegalArgumentException(subsystem + " 子系统下 " + caseKey + " 仅支持 mode: " + joinModes(descriptor.getAllowedModes()));
+        }
+
+        return caseArgs;
+    }
+
+    private static String joinSubsystemTitles(List<String> subsystems) {
+        StringBuilder builder = new StringBuilder();
+        for (int i = 0; i < subsystems.size(); i++) {
+            if (i > 0) {
+                builder.append(" | ");
+            }
+            String key = subsystems.get(i);
+            builder.append(REGISTRY.getSubsystemTitle(key)).append(" (").append(key).append(")");
+        }
+        return builder.toString();
+    }
+
+    private static String buildJarName() {
+        String name = appProps.getProperty("cli.name", "DBChaos");
+        String version = appProps.getProperty("cli.version", "1.0.0");
+        return name + "-" + version + ".jar";
+    }
+
+    private static boolean isHelpToken(String arg) {
+        return "-h".equals(arg) || "--help".equals(arg);
+    }
+
+    private static String resolveDefaultDbType() {
+        String configured = dbProps.getProperty("type");
+        if (configured == null || configured.trim().isEmpty()) {
+            return "opengauss";
+        }
+        return configured.trim().toLowerCase();
+    }
+
+    private static void resetGlobalOverrides() {
+        BaseFaultInject.overrideUrl = null;
+        BaseFaultInject.overrideUser = null;
+        BaseFaultInject.overridePassword = null;
     }
 
     private static void parseGlobalOverrides(String[] args) {
         for (int i = 0; i < args.length; i++) {
-            if ("-url".equalsIgnoreCase(args[i])) BaseFaultInject.overrideUrl = args[++i];
-            else if ("-user".equalsIgnoreCase(args[i])) BaseFaultInject.overrideUser = args[++i];
-            else if ("-password".equalsIgnoreCase(args[i])) BaseFaultInject.overridePassword = args[++i];
+            if ("-url".equalsIgnoreCase(args[i]) && i + 1 < args.length) {
+                BaseFaultInject.overrideUrl = args[++i];
+            } else if ("-user".equalsIgnoreCase(args[i]) && i + 1 < args.length) {
+                BaseFaultInject.overrideUser = args[++i];
+            } else if ("-password".equalsIgnoreCase(args[i]) && i + 1 < args.length) {
+                BaseFaultInject.overridePassword = args[++i];
+            }
         }
+    }
+
+    private static String findOptionValue(String[] args, String target) {
+        for (int i = 0; i < args.length - 1; i++) {
+            if (target.equalsIgnoreCase(args[i])) {
+                return args[i + 1];
+            }
+        }
+        return null;
+    }
+
+    private static String[] appendArgs(String[] args, String... extra) {
+        String[] merged = new String[args.length + extra.length];
+        System.arraycopy(args, 0, merged, 0, args.length);
+        System.arraycopy(extra, 0, merged, args.length, extra.length);
+        return merged;
+    }
+
+    private static String buildExampleCommand(String jarName, String dbType, CaseDescriptor descriptor) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("java -jar ").append(jarName).append(" --db ").append(dbType).append(" ")
+                .append(descriptor.getSubsystem()).append(" ").append(descriptor.getCaseKey());
+        if (descriptor.getExampleArgs() != null && !descriptor.getExampleArgs().trim().isEmpty()) {
+            builder.append(" ").append(descriptor.getExampleArgs().trim());
+        }
+        return builder.toString();
+    }
+
+    private static boolean containsIgnoreCase(List<String> values, String target) {
+        for (String value : values) {
+            if (value.equalsIgnoreCase(target)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String joinModes(List<String> modes) {
+        StringBuilder builder = new StringBuilder();
+        for (int i = 0; i < modes.size(); i++) {
+            if (i > 0) {
+                builder.append(" | ");
+            }
+            builder.append(modes.get(i));
+        }
+        return builder.toString();
     }
 
     private static String repeat(String value, int count) {
@@ -223,5 +465,13 @@ public class Main {
             builder.append(value);
         }
         return builder.toString();
+    }
+
+    private static final class CommandContext {
+        private String dbType;
+        private String subsystem;
+        private String caseKey;
+        private String[] caseArgs = new String[0];
+        private boolean helpRequested;
     }
 }

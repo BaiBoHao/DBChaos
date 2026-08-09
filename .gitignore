@@ -18,8 +18,14 @@ __pycache__/
 *.pyc
 
 # Generated DBChaos/TPC-C bridge XML may contain runtime database connection details.
+scripts/config_generator/template/opengauss_tpcc_config_chaosblade.xml
+scripts/config_generator/template/tpcc_worker.xml
+scripts/config_generator/template/fault-cases-generic.xml
+scripts/config_generator/output/opengauss_dbchaosTpcc_config_chaosblade.xml
+scripts/config_generator/output/dbchaosTpcc_worker.xml
+scripts/config_generator/output/fault-cases-generated.xml
+
+DBChaos-0.0.1.jar
 scripts/opengauss_tpcc_config_chaosblade.xml
 scripts/tpcc_worker.xml
 scripts/fault-cases-generic.xml
-
-DBChaos-0.0.1.jar

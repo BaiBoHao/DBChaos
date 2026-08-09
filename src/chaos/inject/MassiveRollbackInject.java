@@ -80,14 +80,14 @@ public class MassiveRollbackInject extends BaseFaultInject {
 
     @Override
     public void printHelp() {
-        System.out.println("\n\u001B[1m故障画像用法: \u001B[33mmassive_rollback\u001B[0m");
+        System.out.println("\n\u001B[1m不利 Case 用法: \u001B[33mlog massive_rollback\u001B[0m");
         System.out.println("  该故障用于模拟高频事务回滚，压力点在于 Undo/Redo 日志写入及 Buffer Pool 换页频繁。");
         System.out.println("\n\u001B[1m参数列表:\u001B[0m");
         System.out.printf("  %-15s %s\n", "-duration", "必填。故障持续时长 (ms)");
         System.out.printf("  %-15s %s\n", "-threads", "选填。并发执行事务的线程数 (默认 16)");
         System.out.printf("  %-15s %s\n", "-rate", "选填。事务回滚概率 [0.0 - 1.0] (默认 0.7)");
         System.out.println("\n\u001B[1m示例:\u001B[0m");
-        System.out.println("  ... massive_rollback -duration 60000 -threads 32 -rate 0.9");
+        System.out.println("  java -jar DBChaos-0.0.1.jar --db opengauss log massive_rollback -duration 60000 -threads 32 -rate 0.9");
     }
 
     private void detectTargetDbName() {

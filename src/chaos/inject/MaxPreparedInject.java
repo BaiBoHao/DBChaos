@@ -90,14 +90,14 @@ public class MaxPreparedInject extends BaseFaultInject {
 
     @Override
     public void printHelp() {
-        System.out.println("\n\033[1m故障画像用法: \033[33mmax_prepared\033[0m");
+        System.out.println("\n\033[1m不利 Case 用法: \033[33mtxn max_prepared\033[0m");
         System.out.println("  并发触发 Prepared Transaction / XA Prepare，挤兑二阶段提交事务上限。");
         System.out.println("\n\033[1m参数列表:\033[0m");
         System.out.printf("  %-15s %s\n", "-count", "选填。目标 prepared 事务数 (默认 系统上限 + 1)");
         System.out.printf("  %-15s %s\n", "-duration", "选填。持有 prepared 状态时长，单位秒 (默认 30)");
         System.out.printf("  %-15s %s\n", "-concurrency", "选填。并发准备事务线程数 (默认 50)");
         System.out.println("\n\033[1m示例:\033[0m");
-        System.out.println("\033[36m  ... max_prepared -count 201 -duration 60 -concurrency 50\033[0m");
+        System.out.println("\033[36m  java -jar DBChaos-0.0.1.jar --db opengauss txn max_prepared -count 201 -duration 60 -concurrency 50\033[0m");
     }
 
     private int getMaxLimit() {

@@ -24,6 +24,7 @@ CHAOS_PROPS="../resources/chaos.properties"
 CLI_NAME=$(grep "^cli.name=" "$CHAOS_PROPS" | cut -d'=' -f2 | tr -d '\r' | xargs)
 CLI_VER=$(grep "^cli.version=" "$CHAOS_PROPS" | cut -d'=' -f2 | tr -d '\r' | xargs)
 JAR_PATH="../target/${CLI_NAME}-${CLI_VER}.jar"
+DB_PROBE_SCRIPT="../scripts/probe/check_db_connection.sh"
 
 
 # ================================================================
@@ -53,6 +54,23 @@ fi
 # 提取数据库类型并清洗空格与回车符
 DB_TYPE=$(grep "^type=" "$GLOBAL_DB_PROP" | cut -d'=' -f2 | tr -d '\r' | xargs)
 echo "[INFO] 全局配置检测到数据库类型: $DB_TYPE"
+
+if [ ! -f "$DB_PROBE_SCRIPT" ]; then
+    echo "错误：找不到数据库连接探测脚本 $DB_PROBE_SCRIPT"
+    exit 1
+fi
+
+if [ ! -f "$JAR_PATH" ]; then
+    echo "错误：找不到故障注入 JAR：$JAR_PATH"
+    echo "请先在项目根目录执行 ./build_for_linux.sh 生成最新 JAR。"
+    exit 1
+fi
+
+echo "[INFO] 在注入前检查数据库连接..."
+if ! "$DB_PROBE_SCRIPT" --db "$DB_TYPE"; then
+    echo "错误：数据库连接检查失败，停止执行压测与不利注入。"
+    exit 1
+fi
 
 
 # 根据不同type的运行基准测试
@@ -91,7 +109,7 @@ case "$DB_TYPE" in
         # 3.注入故障
         if [ -n "$FAULT_PARAMS" ]; then
             echo "[INFO] >>> 正在注入故障: $FAULT_PARAMS"
-            java -jar "$JAR_PATH" "$DB_TYPE" $FAULT_PARAMS -duration $((FAULT_DURATION * 60 * 1000))
+            java -jar "$JAR_PATH" --db "$DB_TYPE" $FAULT_PARAMS -duration $((FAULT_DURATION * 60 * 1000))
         else
             echo "[WARN] 未检测到故障参数，仅运行基准压测。"
         fi

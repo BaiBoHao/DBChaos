@@ -79,7 +79,7 @@ public class PlanFlipInject extends BaseFaultInject {
 
     @Override
     public void printHelp() {
-        System.out.println("\n\u001B[1m故障画像用法: \u001B[33mplan_flip\u001B[0m");
+        System.out.println("\n\u001B[1m不利 Case 用法: \u001B[33msql plan_flip\u001B[0m");
         System.out.println("  通过构造数据倾斜触发统计信息更新，强制优化器在 IndexScan 与 SeqScan 间震荡。");
         System.out.println("\n\u001B[1m参数列表:\u001B[0m");
         System.out.printf("  %-15s %s\n", "-duration", "必填。故障总时长 (ms)");
@@ -88,7 +88,7 @@ public class PlanFlipInject extends BaseFaultInject {
         System.out.printf("  %-15s %s\n", "-count", "选填。倾斜数据行数 (默认 1,000,000)");
         System.out.printf("  %-15s %s\n", "-interval", "选填。单次跳变周期 (默认 60,000ms)");
         System.out.println("\n\u001B[1m示例:\u001B[0m");
-        System.out.println("  ... plan_flip -duration 300000 -count 2000000 -interval 30000");
+        System.out.println("  java -jar DBChaos-0.0.1.jar --db opengauss sql plan_flip -duration 300000 -count 2000000 -interval 30000");
     }
 
     private void runPlanOscillation(String tableName, int threads, long durationMs, int skewCount, long interval) throws Exception {

@@ -5,7 +5,7 @@
 - Project root: `E:\DBChaos`
 - Project UUID: `27f12b1d-6d86-4c59-a60b-509583178478`
 - Main branch: `main`
-- Current working branch: `main`
+- Current working branch: `codex/json-registry-migration`
 - Related project indexes: none recorded
 
 ## Reading Rules
@@ -29,3 +29,23 @@
 - [Template auto-bootstrap](20260514T154137-template-autobootstrap.md) - Updated `generate_configs.py` to auto-initialize missing template files instead of failing immediately.
 - [Merge 20260514 into main](20260520T173656-merge-20260514-into-main.md) - Merged the 20260514 branch work into main while preserving main's root README and lib deletion state.
 - [Finalize main merge](20260520T174220-finalize-main-merge.md) - Integrated the latest remote main updates after merging 20260514 and completed validation before pushing main.
+- [Local branch 20260520 setup](20260520T220130-local-branch-20260520.md) - Created local branch `20260520` from the latest local main so subsequent work can continue in the E drive checkout.
+- [README refactor draft](20260520T232303-readme-refactor-draft.md) - Rewrote the root README draft around subsystem-oriented adversity categories and resilience-boundary positioning.
+- [CLI copy draft](20260520T233418-cli-copy-draft.md) - Rewrote the CLI banner and help copy around kernel subsystems, entry keywords, and cleaner examples without changing injection behavior.
+- [Windows build helper draft](20260521T000100-win-build-helper-draft.md) - Added a local `build_for_win.sh` helper to compile, package, and preview the CLI help output on Windows.
+- [Subsystem command model draft](20260521T002020-subsystem-command-model-draft.md) - Switched the local CLI draft to `[--db <DB_TYPE>] <SUBSYSTEM> <CASE>` and aligned help, docs, and config generation around the new command model.
+- [CLI subsystem final draft](20260521T115025-cli-subsystem-final-draft.md) - Finalized the local draft around subsystem-first CLI, cleaner help text, and Windows local build helpers before commit.
+- [Config generator defaults draft](20260521T121420-config-generator-defaults-draft.md) - Simplified `generate_configs.py` around built-in template/output defaults, removed JSON selection flow, and verified local Python execution.
+- [Subsystem rename split](20260527T120640-subsystem-rename-split.md) - Renamed execution subsystem wording and split storage/buffer into separate kernel subsystems across CLI, docs, and config generation.
+- [README Windows build note](20260527T212829-readme-win-build-note.md) - Added a minimal Windows local build note to the root README using the project build helper.
+- [Long transaction triplet](20260528T104035-long-transaction-triplet.md) - Added three new long-transaction-derived adversity injections for transaction, storage, and execution subsystems.
+- [Scripts directory reorg](20260528T113520-scripts-directory-reorg.md) - Renamed Linux build script, removed the unused Windows shell build script, moved connection probes under scripts, and moved the config generator into a dedicated subdirectory.
+- [DB connection probe draft](20260528T111242-db-connection-probe-draft.md) - Added a standalone database connection probe feature and runnable PowerShell script to validate db.properties before fault injection.
+- [Demo alignment draft](20260528T133646-demo-alignment-draft.md) - Updated demo.sh and demo README so the BenchmarkSQL workflow, connection probe, and adversity injection command structure match the current CLI.
+- [Branch 20260610 setup](20260610T222504-branch-20260610.md) - Created branch `20260610` from the latest `20260520` and ignored legacy generated XML files under `scripts/` on the server checkout.
+- [Case registry refactor](20260611T015046-case-registry-refactor.md) - Replaced hardcoded CLI and generator case catalogs with registry files, added scaffolding templates/scripts, and wired automatic linkage across help, config generation, and new Case creation.
+- [JSON registry migration](20260611T020915-json-registry-migration.md) - Replaced TSV-based registry files with a single registry.json, updated scaffold/config generation, and validated linkage with quota/test_case.
+- [Server sync and packaging](20260611T022230-server-sync-packaging.md) - Pushed the JSON registry branch, synced the server checkout to the same commit, and completed Linux packaging on the server.
+- [Probe and config layout](20260611T004913-probe-and-config-layout.md) - Added a reusable preflight check, moved probe scripts under scripts/probe, and organized config generator inputs and outputs into dedicated subdirectories.
+- [Scripts README UTF-8 fix](20260611T010307-scripts-readme-utf8-fix.md) - Restored the server-side scripts/README.md to proper UTF-8 content after it degraded into question-mark placeholders.
+- [Merge latest remote into main](20260809T213129-merge-latest-remote-into-main.md) - Identified origin/20260630 as the newest descendant branch, merged it into main, retained project agent records, and validated the build and CLI.
