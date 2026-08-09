@@ -49,3 +49,4 @@
 - [Probe and config layout](20260611T004913-probe-and-config-layout.md) - Added a reusable preflight check, moved probe scripts under scripts/probe, and organized config generator inputs and outputs into dedicated subdirectories.
 - [Scripts README UTF-8 fix](20260611T010307-scripts-readme-utf8-fix.md) - Restored the server-side scripts/README.md to proper UTF-8 content after it degraded into question-mark placeholders.
 - [Merge latest remote into main](20260809T213129-merge-latest-remote-into-main.md) - Identified origin/20260630 as the newest descendant branch, merged it into main, retained project agent records, and validated the build and CLI.
+- [PPT UTF-8 fix](20260611T124712-ppt-utf8-fix.md) - Regenerated the structure-page PPT variant with UTF-8-safe Chinese text while keeping all existing content slides unchanged.
