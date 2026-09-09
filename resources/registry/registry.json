@@ -494,6 +494,175 @@
           "duringSec": 60
         }
       ]
+    },
+    {
+      "subsystem": "session",
+      "caseKey": "sinval_overflow",
+      "title": "元数据共享失效队列溢出与系统缓存击穿",
+      "description": "通过长事务锚点阻止 SI 消息消费并高频生成轻量 DDL，强制内核触发 reset 抹除 CatCache，检验系统自愈性能。",
+      "injectorClass": "chaos.inject.SinvalOverflowInject",
+      "exampleArgs": "-duration 60000 -threads 16 -table bmsql_warehouse",
+      "generatorProfiles": [
+        {
+          "id": 221,
+          "key": "sinval_overflow",
+          "description": "DBChaos Shared Invalidation Queue Overflow",
+          "category": "connection management",
+          "args": [
+            "-duration",
+            "60000",
+            "-threads",
+            "16",
+            "-table",
+            "bmsql_warehouse"
+          ],
+          "duringSec": 60
+        }
+      ]
+    },
+    {
+      "subsystem": "buffer",
+      "caseKey": "dwb_hammer",
+      "title": "双写缓冲区争抢与检查点刷盘雪崩",
+      "description": "通过高并发全表离散写制造海量散列脏页，叠加高频显式 Checkpoint，击穿 DWB 互斥锁与双写磁盘带宽，测试系统自愈弹性。",
+      "injectorClass": "chaos.inject.DwbHammerInject",
+      "exampleArgs": "-duration 60000 -threads 24 -interval 2000",
+      "generatorProfiles": [
+        {
+          "id": 222,
+          "key": "dwb_hammer",
+          "description": "DBChaos Double Write Buffer IO Hammer",
+          "category": "buffer management",
+          "args": [
+            "-duration",
+            "60000",
+            "-threads",
+            "24",
+            "-interval",
+            "2000"
+          ],
+          "duringSec": 60
+        }
+      ]
+    },
+    {
+      "subsystem": "txn",
+      "caseKey": "csnlog_thrashing",
+      "title": "CSNLog 页面淘汰争抢与提交护航震荡",
+      "description": "通过长事务锚点固定早期快照，叠加并发百万级子事务高速消耗 XID 击穿 32 页 SLRU 缓存，诱发 CSNLogControlLock 排队与提交护航。",
+      "injectorClass": "chaos.inject.CsnlogThrashingInject",
+      "exampleArgs": "-duration 60000 -threads 16 -anchors 2",
+      "generatorProfiles": [
+        {
+          "id": 223,
+          "key": "csnlog_thrashing",
+          "description": "DBChaos CSNLog SLRU Page Thrashing",
+          "category": "transaction concurrency management",
+          "args": [
+            "-duration",
+            "60000",
+            "-threads",
+            "16",
+            "-anchors",
+            "2"
+          ],
+          "duringSec": 60
+        }
+      ]
+    },
+    {
+      "subsystem": "storage",
+      "caseKey": "ustore_undo_lag",
+      "title": "Ustore 超长 Undo 链刺穿与后台回收滞后",
+      "description": "快照长事务锚定 xmin 并高频原地更新热点记录，构造超长 Undo 版本链并阻塞回收，度量多版本反解开销与自愈时延。",
+      "injectorClass": "chaos.inject.UstoreUndoLagInject",
+      "exampleArgs": "-duration 60000 -threads 8",
+      "generatorProfiles": [
+        {
+          "id": 224,
+          "key": "ustore_undo_lag",
+          "description": "DBChaos Ustore Undo Lag",
+          "category": "storage engine",
+          "args": [
+            "-duration",
+            "60000",
+            "-threads",
+            "8"
+          ],
+          "duringSec": 60
+        }
+      ]
+    },
+    {
+      "subsystem": "storage",
+      "caseKey": "temp_catalog_bloat",
+      "title": "临时表高频生灭导致系统目录膨胀与元数据锁竞争",
+      "description": "高频并发创建与删除临时表，在核心系统目录表堆积大量 Dead Tuples，测试元数据访问自愈耗时。",
+      "injectorClass": "chaos.inject.TempCatalogBloatInject",
+      "exampleArgs": "-duration 60000 -threads 16",
+      "generatorProfiles": [
+        {
+          "id": 225,
+          "key": "temp_catalog_bloat",
+          "description": "DBChaos Temp Table Catalog Bloat",
+          "category": "storage engine",
+          "args": [
+            "-duration",
+            "60000",
+            "-threads",
+            "16"
+          ],
+          "duringSec": 60
+        }
+      ]
+    },
+    {
+      "subsystem": "session",
+      "caseKey": "nested_worker_exhaustion",
+      "title": "自主事务与嵌套查询引发的线程池饥饿死锁",
+      "description": "并发调用嵌套自主事务的存储过程，耗尽工作线程槽位，测试 openGauss 线程池饥饿自愈能力。",
+      "injectorClass": "chaos.inject.NestedWorkerExhaustionInject",
+      "exampleArgs": "-duration 60000 -threads 36",
+      "generatorProfiles": [
+        {
+          "id": 226,
+          "key": "nested_worker_exhaustion",
+          "description": "DBChaos Nested Worker Exhaustion",
+          "category": "connection management",
+          "args": [
+            "-duration",
+            "60000",
+            "-threads",
+            "36"
+          ],
+          "duringSec": 60
+        }
+      ]
+    },
+    {
+      "subsystem": "exec",
+      "caseKey": "smp_mem_explosion",
+      "title": "SMP 算子内存乘积爆炸与向量化执行器 OOM",
+      "description": "会话级开启 SMP 并发执行多层 HashJoin/Agg 复杂算子链，几何级数放大内存申请，测试动态内存防护与自愈弹性。",
+      "injectorClass": "chaos.inject.SmpMemExplosionInject",
+      "exampleArgs": "-duration 60000 -threads 6 -dop 4",
+      "generatorProfiles": [
+        {
+          "id": 227,
+          "key": "smp_mem_explosion",
+          "description": "DBChaos SMP Memory Explosion",
+          "category": "execution engine",
+          "args": [
+            "-duration",
+            "60000",
+            "-threads",
+            "6",
+            "-dop",
+            "4"
+          ],
+          "duringSec": 60
+        }
+      ]
     }
   ]
 }
