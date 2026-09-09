@@ -1,0 +1,36 @@
+[36m >>> [0m[1m启动 Ustore 超长 Undo 链刺穿不利注入[0m
+   [Ustore Setup] 表初始化失败: [*.*.0.1:60280/*.*.0.1:25433] ERROR: column "x" does not exist
+  Position: 53
+   [Ustore Undo Mutator] 累计原地更新版本: 0, 异常: 331
+   [Ustore Undo Mutator] 累计原地更新版本: 0, 异常: 667
+   [Ustore Undo Mutator] 累计原地更新版本: 0, 异常: 1056
+   [Ustore Undo Mutator] 累计原地更新版本: 0, 异常: 1392
+   [Ustore Undo Mutator] 累计原地更新版本: 0, 异常: 1735
+   [Ustore Undo Mutator] 累计原地更新版本: 0, 异常: 2077
+   [Ustore Undo Mutator] 累计原地更新版本: 0, 异常: 2396
+   [Ustore Undo Mutator] 累计原地更新版本: 0, 异常: 2738
+   [Ustore Undo Mutator] 累计原地更新版本: 0, 异常: 3061
+   [Ustore Undo Mutator] 累计原地更新版本: 0, 异常: 3391
+   [Ustore Undo Mutator] 累计原地更新版本: 0, 异常: 3709
+   [Ustore Undo Mutator] 累计原地更新版本: 0, 异常: 4030
+   [Ustore Undo Mutator] 累计原地更新版本: 0, 异常: 4321
+   [Ustore Undo Mutator] 累计原地更新版本: 0, 异常: 4642
+   [Ustore Undo Mutator] 累计原地更新版本: 0, 异常: 4982
+   [Ustore Undo Mutator] 累计原地更新版本: 0, 异常: 5293
+   [Ustore Undo Mutator] 累计原地更新版本: 0, 异常: 5591
+   [Ustore Undo Mutator] 累计原地更新版本: 0, 异常: 5893
+   [Ustore Undo Mutator] 累计原地更新版本: 0, 异常: 6236
+   [Ustore Undo Mutator] 累计原地更新版本: 0, 异常: 6555
+   [Ustore Undo Mutator] 累计原地更新版本: 0, 异常: 6888
+   [Ustore Undo Mutator] 累计原地更新版本: 0, 异常: 7229
+   [Ustore Undo Mutator] 累计原地更新版本: 0, 异常: 7569
+   [Ustore Undo Mutator] 累计原地更新版本: 0, 异常: 7910
+   [Ustore Undo Mutator] 累计原地更新版本: 0, 异常: 8255
+   [Ustore Undo Mutator] 累计原地更新版本: 0, 异常: 8600
+   [Ustore Undo Mutator] 累计原地更新版本: 0, 异常: 8921
+   [Ustore Undo Mutator] 累计原地更新版本: 0, 异常: 9254
+   [Ustore Undo Mutator] 累计原地更新版本: 0, 异常: 9575
+   [Snapshot Anchor] 快照锚点已提交。
+   [Ustore Undo Mutator] 累计原地更新版本: 0, 异常: 9898
+[33m >>> 注入时长已到，正在释放快照锚点并撤除 Undo 链压力...[0m
+[36m >>> Ustore 不利注入结束，累计更新版本数: 0[0m

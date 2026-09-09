@@ -1,0 +1,35 @@
+{
+  "case": "ustore_undo_lag",
+  "title": "Ustore 超长 Undo 链刺穿与后台回收滞后",
+  "reference_tps": 489.1269305322149,
+  "phases": {
+    "baseline": {
+      "seconds": 30.186989068984985,
+      "transactions": 14672,
+      "successful_tps": 486.0372118090589,
+      "errors": 0,
+      "p95_ms": 16.0,
+      "new_order_tpm": 12553.752848088941
+    },
+    "injection": {
+      "seconds": 60.83400559425354,
+      "transactions": 13266,
+      "successful_tps": 218.06882302771007,
+      "errors": 0,
+      "p95_ms": 67.0,
+      "new_order_tpm": 5669.197624438161
+    },
+    "recovery": {
+      "seconds": 89.08951187133789,
+      "transactions": 47965,
+      "successful_tps": 538.3910966901528,
+      "errors": 0,
+      "p95_ms": 16.0,
+      "new_order_tpm": 13386.760966008758
+    }
+  },
+  "mean_drop_fraction": 0.5541672121990273,
+  "worst_5s_drop_fraction": 0.6119616644426422,
+  "recovery_ratio": 1.100718572384338,
+  "recovery_seconds_ttr": 3.9790053367614746
+}

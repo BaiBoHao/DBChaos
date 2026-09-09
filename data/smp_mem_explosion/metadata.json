@@ -1,0 +1,49 @@
+{
+  "case": {
+    "key": "smp_mem_explosion",
+    "title": "SMP 算子内存乘积爆炸与向量化执行器 OOM",
+    "subsystem": "exec",
+    "caseKey": "smp_mem_explosion",
+    "args": [
+      "-duration",
+      "60000",
+      "-threads",
+      "6",
+      "-dop",
+      "4"
+    ],
+    "seconds": 60
+  },
+  "benchmark_launch_epoch": 1788955105.4365647,
+  "run_minutes": 3,
+  "baseline_seconds": 30,
+  "workload_observed_epoch": 1788955105.9376707,
+  "command": [
+    "java",
+    "-Xmx2g",
+    "-cp",
+    "/home/fenglin/ResBench/DBChaos/target/classes:/home/fenglin/ResBench/DBChaos/DBChaos-0.0.1.jar",
+    "chaos.Main",
+    "--db",
+    "opengauss",
+    "-url",
+    "jdbc:opengauss://127.0.0.1:25433/dbchaos?connectTimeout=5&socketTimeout=180",
+    "-user",
+    "chaos",
+    "-password",
+    "ChaosTest@2026",
+    "exec",
+    "smp_mem_explosion",
+    "-duration",
+    "60000",
+    "-threads",
+    "6",
+    "-dop",
+    "4"
+  ],
+  "inject_start_epoch": 1788955135.941941,
+  "injector_exit": 0,
+  "inject_end_epoch": 1788955196.1763308,
+  "benchmark_end_epoch": 1788955285.871787,
+  "observation_end_epoch": 1788955285.8717918
+}

@@ -1,0 +1,35 @@
+{
+  "case": "nested_worker_exhaustion",
+  "title": "自主事务与嵌套查询引发的线程池饥饿死锁",
+  "reference_tps": 522.6060352989501,
+  "phases": {
+    "baseline": {
+      "seconds": 30.175809860229492,
+      "transactions": 15485,
+      "successful_tps": 513.1593840140347,
+      "errors": 0,
+      "p95_ms": 16.0,
+      "new_order_tpm": 13206.60495429597
+    },
+    "injection": {
+      "seconds": 61.41038799285889,
+      "transactions": 4518,
+      "successful_tps": 73.57061480421481,
+      "errors": 0,
+      "p95_ms": 240.0,
+      "new_order_tpm": 1956.9978944600568
+    },
+    "recovery": {
+      "seconds": 88.50175952911377,
+      "transactions": 42382,
+      "successful_tps": 478.8831343636497,
+      "errors": 0,
+      "p95_ms": 17.0,
+      "new_order_tpm": 12309.585773168968
+    }
+  },
+  "mean_drop_fraction": 0.8592235645305365,
+  "worst_5s_drop_fraction": 0.8771541167463265,
+  "recovery_ratio": 0.9163367852989119,
+  "recovery_seconds_ttr": 3.413802146911621
+}

@@ -1,0 +1,45 @@
+{
+  "case": {
+    "key": "temp_catalog_bloat",
+    "title": "临时表高频生灭导致系统目录膨胀与元数据锁竞争",
+    "subsystem": "storage",
+    "caseKey": "temp_catalog_bloat",
+    "args": [
+      "-duration",
+      "60000",
+      "-threads",
+      "16"
+    ],
+    "seconds": 60
+  },
+  "benchmark_launch_epoch": 1788954708.149919,
+  "run_minutes": 3,
+  "baseline_seconds": 30,
+  "workload_observed_epoch": 1788954708.6509852,
+  "command": [
+    "java",
+    "-Xmx2g",
+    "-cp",
+    "/home/fenglin/ResBench/DBChaos/target/classes:/home/fenglin/ResBench/DBChaos/DBChaos-0.0.1.jar",
+    "chaos.Main",
+    "--db",
+    "opengauss",
+    "-url",
+    "jdbc:opengauss://127.0.0.1:25433/dbchaos?connectTimeout=5&socketTimeout=180",
+    "-user",
+    "chaos",
+    "-password",
+    "ChaosTest@2026",
+    "storage",
+    "temp_catalog_bloat",
+    "-duration",
+    "60000",
+    "-threads",
+    "16"
+  ],
+  "inject_start_epoch": 1788954738.6810882,
+  "injector_exit": 0,
+  "inject_end_epoch": 1788954799.0362437,
+  "benchmark_end_epoch": 1788954888.5655863,
+  "observation_end_epoch": 1788954888.5655918
+}

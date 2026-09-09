@@ -1,0 +1,34 @@
+[36m >>> [0m[1m启动自主事务嵌套线程池饥饿不利注入[0m
+   [Procedure Setup] 自主事务与父调用存储过程创建成功。
+   [Nested Worker] 并发调用自主事务计数: 31, 异常: 55
+   [Nested Worker] 并发调用自主事务计数: 65, 异常: 97
+   [Nested Worker] 并发调用自主事务计数: 100, 异常: 137
+   [Nested Worker] 并发调用自主事务计数: 136, 异常: 180
+   [Nested Worker] 并发调用自主事务计数: 169, 异常: 227
+   [Nested Worker] 并发调用自主事务计数: 205, 异常: 281
+   [Nested Worker] 并发调用自主事务计数: 239, 异常: 323
+   [Nested Worker] 并发调用自主事务计数: 275, 异常: 362
+   [Nested Worker] 并发调用自主事务计数: 311, 异常: 404
+   [Nested Worker] 并发调用自主事务计数: 348, 异常: 446
+   [Nested Worker] 并发调用自主事务计数: 384, 异常: 489
+   [Nested Worker] 并发调用自主事务计数: 418, 异常: 547
+   [Nested Worker] 并发调用自主事务计数: 453, 异常: 596
+   [Nested Worker] 并发调用自主事务计数: 492, 异常: 648
+   [Nested Worker] 并发调用自主事务计数: 526, 异常: 682
+   [Nested Worker] 并发调用自主事务计数: 563, 异常: 729
+   [Nested Worker] 并发调用自主事务计数: 598, 异常: 772
+   [Nested Worker] 并发调用自主事务计数: 634, 异常: 808
+   [Nested Worker] 并发调用自主事务计数: 670, 异常: 864
+   [Nested Worker] 并发调用自主事务计数: 705, 异常: 925
+   [Nested Worker] 并发调用自主事务计数: 738, 异常: 979
+   [Nested Worker] 并发调用自主事务计数: 773, 异常: 1020
+   [Nested Worker] 并发调用自主事务计数: 810, 异常: 1062
+   [Nested Worker] 并发调用自主事务计数: 847, 异常: 1101
+   [Nested Worker] 并发调用自主事务计数: 880, 异常: 1167
+   [Nested Worker] 并发调用自主事务计数: 914, 异常: 1217
+   [Nested Worker] 并发调用自主事务计数: 950, 异常: 1282
+   [Nested Worker] 并发调用自主事务计数: 985, 异常: 1325
+   [Nested Worker] 并发调用自主事务计数: 1020, 异常: 1369
+   [Nested Worker] 并发调用自主事务计数: 1054, 异常: 1407
+[33m >>> 注入时长已到，正在撤除并发嵌套调用并断开会话...[0m
+[36m >>> 嵌套自主事务注入结束，总计调用数: 1079[0m

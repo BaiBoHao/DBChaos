@@ -1,0 +1,34 @@
+[36m >>> [0m[1m启动临时表高频生灭与系统表膨胀不利注入[0m
+   并发临时表线程数: 16 | 持续时间: 60000 ms
+   [Temp Catalog Bloat] 累计创建/销毁临时表: 0, 异常: 102
+   [Temp Catalog Bloat] 累计创建/销毁临时表: 0, 异常: 245
+   [Temp Catalog Bloat] 累计创建/销毁临时表: 0, 异常: 372
+   [Temp Catalog Bloat] 累计创建/销毁临时表: 0, 异常: 494
+   [Temp Catalog Bloat] 累计创建/销毁临时表: 0, 异常: 622
+   [Temp Catalog Bloat] 累计创建/销毁临时表: 0, 异常: 746
+   [Temp Catalog Bloat] 累计创建/销毁临时表: 0, 异常: 871
+   [Temp Catalog Bloat] 累计创建/销毁临时表: 0, 异常: 1001
+   [Temp Catalog Bloat] 累计创建/销毁临时表: 0, 异常: 1132
+   [Temp Catalog Bloat] 累计创建/销毁临时表: 0, 异常: 1258
+   [Temp Catalog Bloat] 累计创建/销毁临时表: 0, 异常: 1383
+   [Temp Catalog Bloat] 累计创建/销毁临时表: 0, 异常: 1505
+   [Temp Catalog Bloat] 累计创建/销毁临时表: 0, 异常: 1630
+   [Temp Catalog Bloat] 累计创建/销毁临时表: 0, 异常: 1760
+   [Temp Catalog Bloat] 累计创建/销毁临时表: 0, 异常: 1880
+   [Temp Catalog Bloat] 累计创建/销毁临时表: 0, 异常: 2011
+   [Temp Catalog Bloat] 累计创建/销毁临时表: 0, 异常: 2135
+   [Temp Catalog Bloat] 累计创建/销毁临时表: 0, 异常: 2259
+   [Temp Catalog Bloat] 累计创建/销毁临时表: 0, 异常: 2384
+   [Temp Catalog Bloat] 累计创建/销毁临时表: 0, 异常: 2514
+   [Temp Catalog Bloat] 累计创建/销毁临时表: 0, 异常: 2644
+   [Temp Catalog Bloat] 累计创建/销毁临时表: 0, 异常: 2757
+   [Temp Catalog Bloat] 累计创建/销毁临时表: 0, 异常: 2874
+   [Temp Catalog Bloat] 累计创建/销毁临时表: 0, 异常: 2992
+   [Temp Catalog Bloat] 累计创建/销毁临时表: 0, 异常: 3114
+   [Temp Catalog Bloat] 累计创建/销毁临时表: 0, 异常: 3237
+   [Temp Catalog Bloat] 累计创建/销毁临时表: 0, 异常: 3358
+   [Temp Catalog Bloat] 累计创建/销毁临时表: 0, 异常: 3473
+   [Temp Catalog Bloat] 累计创建/销毁临时表: 0, 异常: 3594
+   [Temp Catalog Bloat] 累计创建/销毁临时表: 0, 异常: 3715
+[33m >>> 注入时长已到，正在撤除临时表创建压力...[0m
+[36m >>> 临时表注入结束，总计生灭临时表: 0[0m

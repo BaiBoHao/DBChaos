@@ -1,0 +1,49 @@
+{
+  "case": {
+    "key": "csnlog_thrashing_resilience",
+    "title": "CSNLog 页面淘汰争抢与提交护航震荡",
+    "subsystem": "txn",
+    "caseKey": "csnlog_thrashing",
+    "args": [
+      "-duration",
+      "60000",
+      "-threads",
+      "16",
+      "-anchors",
+      "2"
+    ],
+    "seconds": 60
+  },
+  "benchmark_launch_epoch": 1788953049.3562946,
+  "run_minutes": 3,
+  "baseline_seconds": 30,
+  "workload_observed_epoch": 1788953049.857214,
+  "command": [
+    "java",
+    "-Xmx2g",
+    "-cp",
+    "/home/fenglin/ResBench/DBChaos/target/classes:/home/fenglin/ResBench/DBChaos/DBChaos-0.0.1.jar",
+    "chaos.Main",
+    "--db",
+    "opengauss",
+    "-url",
+    "jdbc:opengauss://127.0.0.1:25433/dbchaos?connectTimeout=5&socketTimeout=180",
+    "-user",
+    "chaos",
+    "-password",
+    "ChaosTest@2026",
+    "txn",
+    "csnlog_thrashing",
+    "-duration",
+    "60000",
+    "-threads",
+    "16",
+    "-anchors",
+    "2"
+  ],
+  "inject_start_epoch": 1788953079.8873043,
+  "injector_exit": 0,
+  "inject_end_epoch": 1788953140.1855981,
+  "benchmark_end_epoch": 1788953229.7781641,
+  "observation_end_epoch": 1788953229.7781672
+}

@@ -1,0 +1,35 @@
+{
+  "case": "temp_catalog_bloat",
+  "title": "临时表高频生灭导致系统目录膨胀与元数据锁竞争",
+  "reference_tps": 550.8320390900386,
+  "phases": {
+    "baseline": {
+      "seconds": 30.19308829307556,
+      "transactions": 16140,
+      "successful_tps": 534.5594277515999,
+      "errors": 0,
+      "p95_ms": 15.0,
+      "new_order_tpm": 13701.811354450858
+    },
+    "injection": {
+      "seconds": 60.35515546798706,
+      "transactions": 2917,
+      "successful_tps": 48.330585471645485,
+      "errors": 0,
+      "p95_ms": 195.0,
+      "new_order_tpm": 1300.3031703170168
+    },
+    "recovery": {
+      "seconds": 89.5293481349945,
+      "transactions": 44544,
+      "successful_tps": 497.53517620652707,
+      "errors": 0,
+      "p95_ms": 17.0,
+      "new_order_tpm": 12845.843558090937
+    }
+  },
+  "mean_drop_fraction": 0.9122589427595997,
+  "worst_5s_drop_fraction": 0.9270194956952587,
+  "recovery_ratio": 0.9032429867885741,
+  "recovery_seconds_ttr": 4.451756238937378
+}

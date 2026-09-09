@@ -1,0 +1,142 @@
+{
+  "ustore_undo_lag": {
+    "case": "ustore_undo_lag",
+    "title": "Ustore 超长 Undo 链刺穿与后台回收滞后",
+    "reference_tps": 489.1269305322149,
+    "phases": {
+      "baseline": {
+        "seconds": 30.186989068984985,
+        "transactions": 14672,
+        "successful_tps": 486.0372118090589,
+        "errors": 0,
+        "p95_ms": 16.0,
+        "new_order_tpm": 12553.752848088941
+      },
+      "injection": {
+        "seconds": 60.83400559425354,
+        "transactions": 13266,
+        "successful_tps": 218.06882302771007,
+        "errors": 0,
+        "p95_ms": 67.0,
+        "new_order_tpm": 5669.197624438161
+      },
+      "recovery": {
+        "seconds": 89.08951187133789,
+        "transactions": 47965,
+        "successful_tps": 538.3910966901528,
+        "errors": 0,
+        "p95_ms": 16.0,
+        "new_order_tpm": 13386.760966008758
+      }
+    },
+    "mean_drop_fraction": 0.5541672121990273,
+    "worst_5s_drop_fraction": 0.6119616644426422,
+    "recovery_ratio": 1.100718572384338,
+    "recovery_seconds_ttr": 3.9790053367614746
+  },
+  "temp_catalog_bloat": {
+    "case": "temp_catalog_bloat",
+    "title": "临时表高频生灭导致系统目录膨胀与元数据锁竞争",
+    "reference_tps": 550.8320390900386,
+    "phases": {
+      "baseline": {
+        "seconds": 30.19308829307556,
+        "transactions": 16140,
+        "successful_tps": 534.5594277515999,
+        "errors": 0,
+        "p95_ms": 15.0,
+        "new_order_tpm": 13701.811354450858
+      },
+      "injection": {
+        "seconds": 60.35515546798706,
+        "transactions": 2917,
+        "successful_tps": 48.330585471645485,
+        "errors": 0,
+        "p95_ms": 195.0,
+        "new_order_tpm": 1300.3031703170168
+      },
+      "recovery": {
+        "seconds": 89.5293481349945,
+        "transactions": 44544,
+        "successful_tps": 497.53517620652707,
+        "errors": 0,
+        "p95_ms": 17.0,
+        "new_order_tpm": 12845.843558090937
+      }
+    },
+    "mean_drop_fraction": 0.9122589427595997,
+    "worst_5s_drop_fraction": 0.9270194956952587,
+    "recovery_ratio": 0.9032429867885741,
+    "recovery_seconds_ttr": 4.451756238937378
+  },
+  "nested_worker_exhaustion": {
+    "case": "nested_worker_exhaustion",
+    "title": "自主事务与嵌套查询引发的线程池饥饿死锁",
+    "reference_tps": 522.6060352989501,
+    "phases": {
+      "baseline": {
+        "seconds": 30.175809860229492,
+        "transactions": 15485,
+        "successful_tps": 513.1593840140347,
+        "errors": 0,
+        "p95_ms": 16.0,
+        "new_order_tpm": 13206.60495429597
+      },
+      "injection": {
+        "seconds": 61.41038799285889,
+        "transactions": 4518,
+        "successful_tps": 73.57061480421481,
+        "errors": 0,
+        "p95_ms": 240.0,
+        "new_order_tpm": 1956.9978944600568
+      },
+      "recovery": {
+        "seconds": 88.50175952911377,
+        "transactions": 42382,
+        "successful_tps": 478.8831343636497,
+        "errors": 0,
+        "p95_ms": 17.0,
+        "new_order_tpm": 12309.585773168968
+      }
+    },
+    "mean_drop_fraction": 0.8592235645305365,
+    "worst_5s_drop_fraction": 0.8771541167463265,
+    "recovery_ratio": 0.9163367852989119,
+    "recovery_seconds_ttr": 3.413802146911621
+  },
+  "smp_mem_explosion": {
+    "case": "smp_mem_explosion",
+    "title": "SMP 算子内存乘积爆炸与向量化执行器 OOM",
+    "reference_tps": 480.2257093547283,
+    "phases": {
+      "baseline": {
+        "seconds": 30.150941133499146,
+        "transactions": 14461,
+        "successful_tps": 479.6201861816225,
+        "errors": 0,
+        "p95_ms": 17.0,
+        "new_order_tpm": 12240.413934872387
+      },
+      "injection": {
+        "seconds": 60.234389781951904,
+        "transactions": 22194,
+        "successful_tps": 368.4606099662026,
+        "errors": 0,
+        "p95_ms": 35.0,
+        "new_order_tpm": 9538.736958735755
+      },
+      "recovery": {
+        "seconds": 89.69546103477478,
+        "transactions": 45068,
+        "successful_tps": 502.45574837423726,
+        "errors": 0,
+        "p95_ms": 16.0,
+        "new_order_tpm": 12547.123199062175
+      }
+    },
+    "mean_drop_fraction": 0.23273451881346108,
+    "worst_5s_drop_fraction": 0.3657149251561599,
+    "recovery_ratio": 1.0462908140619525,
+    "recovery_seconds_ttr": 4.61466908454895
+  }
+}

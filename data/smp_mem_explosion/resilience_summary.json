@@ -1,0 +1,35 @@
+{
+  "case": "smp_mem_explosion",
+  "title": "SMP 算子内存乘积爆炸与向量化执行器 OOM",
+  "reference_tps": 480.2257093547283,
+  "phases": {
+    "baseline": {
+      "seconds": 30.150941133499146,
+      "transactions": 14461,
+      "successful_tps": 479.6201861816225,
+      "errors": 0,
+      "p95_ms": 17.0,
+      "new_order_tpm": 12240.413934872387
+    },
+    "injection": {
+      "seconds": 60.234389781951904,
+      "transactions": 22194,
+      "successful_tps": 368.4606099662026,
+      "errors": 0,
+      "p95_ms": 35.0,
+      "new_order_tpm": 9538.736958735755
+    },
+    "recovery": {
+      "seconds": 89.69546103477478,
+      "transactions": 45068,
+      "successful_tps": 502.45574837423726,
+      "errors": 0,
+      "p95_ms": 16.0,
+      "new_order_tpm": 12547.123199062175
+    }
+  },
+  "mean_drop_fraction": 0.23273451881346108,
+  "worst_5s_drop_fraction": 0.3657149251561599,
+  "recovery_ratio": 1.0462908140619525,
+  "recovery_seconds_ttr": 4.61466908454895
+}
