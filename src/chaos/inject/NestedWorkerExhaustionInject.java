@@ -1,118 +1,109 @@
 package chaos.inject;
 
-import chaos.core.BaseFaultInject;
+import java.sql.*;
+import java.util.concurrent.ThreadLocalRandom;
 
-import java.sql.Connection;
-import java.sql.SQLException;
-import java.sql.Statement;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
-
-/**
- * 自主事务与嵌套查询引发的线程池饥饿死锁不利注入。
- * 机制原理：
- * 1. 创建包含自主事务（PRAGMA AUTONOMOUS_TRANSACTION）的嵌套存储过程；
- * 2. 启动并发线程数超过 thread_pool_attr 中配置的 Worker 数（当前配置每组 16，2 组共 32 Worker）；
- * 3. 父任务持有 Worker 线程并同步等待自主事务完成，自主事务向线程池申请新的 Worker 槽位，诱发线程池饥饿自锁；
- * 4. 计时结束强制释放客户端连接，观察 openGauss 线程池能否自行解挂或恢复响应。
- */
-public class NestedWorkerExhaustionInject extends BaseFaultInject {
-    private static final String RESET  = "\u001B[0m";
-    private static final String CYAN   = "\u001B[36m";
-    private static final String YELLOW = "\u001B[33m";
-    private static final String RED    = "\u001B[31m";
-    private static final String BOLD   = "\u001B[1m";
-
-    private final AtomicLong callCount = new AtomicLong(0);
-    private final AtomicLong errors = new AtomicLong(0);
-    private final AtomicBoolean running = new AtomicBoolean(true);
-
-    public NestedWorkerExhaustionInject(String dbType) {
-        super(dbType, "NESTED_WORKER_EXHAUSTION");
+/** Config-adaptive white-box pressure; see ADAPTIVE_NOTES.md. */
+public class NestedWorkerExhaustionInject extends AdaptiveFaultInject {
+    private int threads, slots, workers, seriesLength, holdMs;
+    private boolean pool, innerCreated, parentCreated;
+    private final String suffix = Long.toHexString(System.nanoTime());
+    private final String inner = "chaos_auto_" + suffix;
+    private final String parent = "chaos_parent_" + suffix;
+    private final int lockNamespace = ThreadLocalRandom.current().nextInt(1,Integer.MAX_VALUE);
+    public NestedWorkerExhaustionInject(String dbType) { super(dbType, "NESTED_WORKER_EXHAUSTION"); }
+    protected void configure(String[] args) {
+        logAdaptive("Detected " + querySettings("enable_thread_pool", "thread_pool_attr", "max_concurrent_autonomous_transactions"));
+        pool = settingBool("enable_thread_pool", false);
+        boolean enterprise = isEnterprise();
+        String[] attr = settingStr("thread_pool_attr", "16,1,(nobind)").split(",");
+        workers = 16;
+        try { workers = (int)Math.min(4096, Math.max(1, (long)Integer.parseInt(attr[0].trim()) * Integer.parseInt(attr[1].trim()))); }
+        catch (RuntimeException ignored) { logAdaptive("Unparseable thread_pool_attr; assuming 16 workers"); }
+        int cap = Math.max(0, settingInt("max_concurrent_autonomous_transactions", 10));
+        slots = Math.min(Math.max(0, cap-2), Math.max(0,budget()/4));
+        if (cap == 1) slots = 1;
+        if (budget() <= slots) throw new IllegalStateException("Insufficient budget for parent and autonomous sessions");
+        int upper = Math.max(1, Math.min(256, budget()-slots));
+        int adaptiveMinimum = pool ? Math.max(workers,slots*2) : clamp(scaleByMemory(8,128), 8, enterprise ? 160 : 64);
+        int requested = arg(args, "-threads", adaptiveMinimum);
+        holdMs = 2500;
+        if (pool) {
+            long units = units();
+            int poolCap = (int)Math.max(10L, Math.min(64L, 2 * units + 8));
+            threads = clamp(Math.min(requested, poolCap), 1, upper);
+            holdMs = (int)Math.max(1000L, Math.min(2500L, 600 + 400 * units));
+            logAdaptive("Applied poolCap=" + poolCap + "; holdMs=" + holdMs);
+        } else {
+            // In process-per-connection mode (no thread pool), scale parents to saturate connection pool
+            int enterpriseParents = clamp(budget() - 15, 32, 160);
+            threads = clamp(enterprise ? Math.max(requested, enterpriseParents) : Math.max(requested, adaptiveMinimum), 1, upper);
+            holdMs = 200;
+        }
+        if (threads > requested) logAdaptive("Raised parents " + requested + " -> " + threads +
+                " for " + memoryKB() / 1048576 + "GB instance");
+        seriesLength = enterprise ? 50000 : 20000;
+        slots = Math.min(slots,threads);
+        logAdaptive((pool ? "Native pool-worker holding" : "Active multi-process scheduler saturation + execution contention") +
+                "; workers=" + workers + "; parents=" + threads + "; autonomous slots=" + slots + "; inner sleep=" + holdMs / 1000.0 + "s" +
+                (pool ? "" : "; CPU series=" + seriesLength) +
+                (enterprise ? " [Enterprise Multi-Process Saturation Enabled]" : ""));
+        if (pool && threads < workers) logAdaptive("Safe parent limit or connection budget limits parents below pool workers");
+        if (slots == 0) logAdaptive("Autonomous transactions unavailable: successful parent CALLs use CPU/sleep pressure only");
     }
-
-    @Override
-    public void execute(String[] args) throws Exception {
-        if (args.length == 0 || hasArg(args, "-h") || hasArg(args, "--help")) {
-            printHelp();
-            return;
-        }
-
-        String durationStr = getArg(args, "-duration");
-        if (durationStr == null) {
-            System.err.println(RED + " 参数错误: 缺失必填参数 -duration (ms)" + RESET);
-            printHelp();
-            return;
-        }
-
-        long durationMs = Long.parseLong(durationStr);
-        int threads = parseIntArg(args, "-threads", 36);
-
-        System.out.println(CYAN + " >>> " + RESET + BOLD + "启动自主事务嵌套线程池饥饿不利注入" + RESET);
-        setupStoredProcedures();
-
-        ExecutorService executor = Executors.newFixedThreadPool(threads);
-        for (int i = 0; i < threads; i++) {
-            executor.execute(this::runNestedCaller);
-        }
-
-        long endTime = System.currentTimeMillis() + durationMs;
-        while (System.currentTimeMillis() < endTime) {
-            Thread.sleep(2000);
-            System.out.println("   [Nested Worker] 并发调用自主事务计数: " + callCount.get() + ", 异常: " + errors.get());
-        }
-
-        System.out.println(YELLOW + " >>> 注入时长已到，正在撤除并发嵌套调用并断开会话..." + RESET);
-        running.set(false);
-        executor.shutdown();
-        if (!executor.awaitTermination(15, TimeUnit.SECONDS)) {
-            executor.shutdownNow();
-        }
-
-        System.out.println(CYAN + " >>> 嵌套自主事务注入结束，总计调用数: " + callCount.get() + RESET);
-    }
-
-    private void setupStoredProcedures() {
-        try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
-            stmt.execute("CREATE OR REPLACE PROCEDURE proc_chaos_auto_inner(v int) AS " +
-                         "PRAGMA AUTONOMOUS_TRANSACTION; " +
-                         "BEGIN " +
-                         "  PERFORM pg_sleep(0.3); " +
-                         "END; /");
-            stmt.execute("CREATE OR REPLACE PROCEDURE proc_chaos_parent(v int) AS " +
-                         "BEGIN " +
-                         "  proc_chaos_auto_inner(v); " +
-                         "END; /");
-            System.out.println("   [Procedure Setup] 自主事务与父调用存储过程创建成功。");
-        } catch (SQLException e) {
-            System.err.println("   [Procedure Setup] 存储过程创建失败: " + e.getMessage());
-        }
-    }
-
-    private void runNestedCaller() {
-        while (running.get()) {
-            try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
-                stmt.execute("CALL proc_chaos_parent(1);");
-                callCount.incrementAndGet();
-            } catch (SQLException e) {
-                errors.incrementAndGet();
-                try {
-                    Thread.sleep(50);
-                } catch (InterruptedException ignored) {}
+    protected void startWork() throws Exception {
+        if (pool) {
+            try (Connection conn = open()) {
+                if (slots > 0) {
+                    try {
+                        sql(conn, "CREATE PROCEDURE " + inner + "(v int) AS PRAGMA AUTONOMOUS_TRANSACTION; " +
+                                "BEGIN PERFORM pg_sleep(" + holdMs / 1000.0 + "); END;");
+                        innerCreated = true;
+                    } catch (SQLException e) {
+                        logAdaptive("Autonomous transaction registration unavailable (" + e.getMessage() + ")");
+                        slots = 0;
+                    }
+                }
+                String pressure = "PERFORM pg_sleep(" + holdMs / 1000.0 + "); ";
+                String call = slots == 0 ? "" :
+                        "BEGIN PERFORM pg_advisory_lock(" + lockNamespace + ",v); " +
+                        "BEGIN " + inner + "(v); " +
+                        "EXCEPTION WHEN OTHERS THEN NULL; END; " +
+                        "PERFORM pg_advisory_unlock(" + lockNamespace + ",v); " +
+                        "EXCEPTION WHEN OTHERS THEN NULL; END; ";
+                sql(conn, "CREATE PROCEDURE " + parent + "(v int) AS BEGIN " + pressure + call + "END;");
+                parentCreated = true;
+            }
+            for (int i=0; i<threads; i++) {
+                final int slot = slots == 0 ? 0 : i%slots;
+                worker(conn -> {
+                    sql(conn, "CALL " + parent + "(" + slot + ")");
+                    ok.incrementAndGet();
+                });
+            }
+        } else {
+            // Standalone process mode (no thread pool):
+            // All backend processes actively run procedural DO blocks, directly saturating the CPU
+            // and avoiding procedural LWLock exhaustion.
+            final String doBlock = "DO $$ BEGIN " +
+                    "PERFORM sum(length(md5(g::text))) FROM generate_series(1," + seriesLength + ") AS g; " +
+                    "END; $$;";
+            for (int i=0; i<threads; i++) {
+                worker(conn -> {
+                    sql(conn, doBlock);
+                    ok.incrementAndGet();
+                });
             }
         }
     }
-
-    private int parseIntArg(String[] args, String target, int defaultValue) {
-        String val = getArg(args, target);
-        if (val == null) return defaultValue;
-        try {
-            return Integer.parseInt(val.trim());
-        } catch (NumberFormatException e) {
-            return defaultValue;
+    protected void cleanup() throws Exception {
+        try (Connection conn = open()) {
+            if (parentCreated) {
+                try { sql(conn, "DROP PROCEDURE " + parent + "(int)"); } catch (SQLException e) { failure(e); }
+            }
+            if (innerCreated) {
+                try { sql(conn, "DROP PROCEDURE " + inner + "(int)"); } catch (SQLException e) { failure(e); }
+            }
         }
     }
 
@@ -121,6 +112,6 @@ public class NestedWorkerExhaustionInject extends BaseFaultInject {
         System.out.println("用例: nested_worker_exhaustion (自主事务与嵌套查询引发的线程池饥饿死锁)");
         System.out.println("参数:");
         System.out.println("  -duration <ms>   持续时间(毫秒) [必填]");
-        System.out.println("  -threads <num>   并发嵌套调用线程数 [默认: 36]");
+        System.out.println("  -threads <num>   并发嵌套调用线程数 [线程池开启时受内存上限约束；关闭时显式值为下限，受安全上限约束]");
     }
 }

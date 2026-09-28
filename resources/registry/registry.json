@@ -501,7 +501,7 @@
       "title": "元数据共享失效队列溢出与系统缓存击穿",
       "description": "通过长事务锚点阻止 SI 消息消费并高频生成轻量 DDL，强制内核触发 reset 抹除 CatCache，检验系统自愈性能。",
       "injectorClass": "chaos.inject.SinvalOverflowInject",
-      "exampleArgs": "-duration 60000 -threads 16 -table bmsql_warehouse",
+      "exampleArgs": "-duration 60000 -threads 16 -table chaos_sinval_dummy",
       "generatorProfiles": [
         {
           "id": 221,

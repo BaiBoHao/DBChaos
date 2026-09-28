@@ -1,159 +1,98 @@
 package chaos.inject;
 
-import chaos.core.BaseFaultInject;
-
 import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.SQLException;
-import java.sql.Statement;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
 
-/**
- * 双写缓冲区 (DWB) 写入争用与 Checkpoint 刷盘雪崩不利注入。
- * 机制原理：
- * 1. 启动高并发 Mutator 线程对海量离散数据页（bmsql_stock 全表 100,000 行跨越数千个 Page）进行随机单行更新，
- *    最大化打散局部性并瞬间制造巨量离散脏页；
- * 2. 独立 Checkpoint 线程以极短周期（如每 2 秒）触发显式 CHECKPOINT，迫使 openGauss 将脏页全量排队刷写 DWB；
- * 3. 逼迫 DWB 全局槽位互斥锁与双倍磁盘 I/O 饱和，诱发 BufferAlloc 阻塞与前台工作线程被迫同步刷盘；
- * 4. 注入时长到达后立即停止更新与 Checkpoint，观测系统在积压数 GB 脏页的“I/O 债务”偿还期间的自愈时延 (TTR) 与吞吐回升弹性。
- */
-public class DwbHammerInject extends BaseFaultInject {
-    private static final String RESET  = "\u001B[0m";
-    private static final String CYAN   = "\u001B[36m";
-    private static final String YELLOW = "\u001B[33m";
-    private static final String RED    = "\u001B[31m";
-    private static final String BOLD   = "\u001B[1m";
+/** Config-adaptive white-box pressure; see ADAPTIVE_NOTES.md. */
+public class DwbHammerInject extends AdaptiveFaultInject {
+    private int threads, interval, updatePaceMs, seedRows;
+    private long writeBudget, targetPerSec;
+    private String table;
+    private boolean created;
 
-    private final AtomicLong updateCount = new AtomicLong(0);
-    private final AtomicLong updateErrors = new AtomicLong(0);
-    private final AtomicLong checkpointCount = new AtomicLong(0);
-    private final AtomicBoolean running = new AtomicBoolean(true);
+    public DwbHammerInject(String dbType) { super(dbType, "DWB_HAMMER"); }
 
-    public DwbHammerInject(String dbType) {
-        super(dbType, "DWB_HAMMER");
+    private static boolean isTxnTable(String name) {
+        if (name == null) return false;
+        String lower = name.toLowerCase();
+        return lower.startsWith("bmsql_") || lower.contains("warehouse")
+                || lower.contains("district") || lower.contains("customer")
+                || lower.contains("history") || lower.contains("new_order")
+                || lower.contains("orders") || lower.contains("order_line")
+                || lower.contains("item") || lower.contains("stock");
+    }
+
+    protected void configure(String[] args) {
+        logAdaptive("Detected " + querySettings("enable_double_write", "enable_incremental_checkpoint"));
+        String customTable = getArg(args, "-table");
+        if (customTable != null && !customTable.trim().isEmpty()) {
+            if (isTxnTable(customTable.trim())) {
+                throw new IllegalArgumentException("禁止读取或修改业务事务所涉及的表: " + customTable);
+            }
+            table = customTable.trim();
+        } else {
+            table = "chaos_dwb_" + Long.toHexString(System.nanoTime());
+        }
+
+        threads = threads(args, 4, 96, 1);
+        long units = Math.max(1L, memoryKB() / 2097152);
+        threads = Math.min(threads, (int)Math.max(8L, Math.min(96L, 2 * units)));
+        int minimum = (int)Math.max(250L, 12000 / units);
+        int adaptiveInterval = (int)Math.max(500L, Math.min(2000L, 2000L - 30L * units));
+        interval = clamp(arg(args, "-interval", adaptiveInterval), minimum, 60000);
+        seedRows = (int) Math.min(100000L, Math.max(20000L, 20000L * units));
+
+        // Bound the total dirty-row writes: a 6GB/2-core host cannot reclaim hundreds of
+        // thousands of dead tuples inside the recovery window, so scale the write
+        // budget with memory and pace the update workers to spend it over the injection window.
+        long durationMs = Math.max(1L, Long.parseLong(getArg(args, "-duration")));
+        writeBudget = 15000L * units;
+        targetPerSec = Math.max(1L, writeBudget * 1000L / durationMs);
+        updatePaceMs = Math.max(0, (int)(1000L * threads / targetPerSec) - 4);
+        logAdaptive("Dedicated isolated table (" + table + ") random dirty-page updates + CHECKPOINT; threads=" + threads +
+                "; interval=" + interval + "ms; seedRows=" + seedRows + "; writeBudget=" + writeBudget +
+                "; targetUpdatesPerSec=" + targetPerSec + "; updatePace=" + updatePaceMs +
+                "ms; double-write disabled, if detected, means checkpoint/I/O pressure only");
+    }
+
+    protected void startWork() throws Exception {
+        try (Connection conn = open()) {
+            sql(conn, "DROP TABLE IF EXISTS " + table);
+            sql(conn, "CREATE TABLE " + table + " (id int PRIMARY KEY, val1 int, val2 int, pad text)");
+            created = true;
+            sql(conn, "INSERT INTO " + table + " SELECT g, 0, 0, repeat('x', 128) FROM generate_series(1," + seedRows + ") AS g");
+            sql(conn, "ANALYZE " + table);
+        }
+        worker(conn -> {
+            sql(conn, "CHECKPOINT");
+            // Checkpoints alone do not establish effective dirty-page pressure.
+            Thread.sleep(interval);
+        });
+        for (int i=0; i<threads; i++) worker(conn -> {
+            int id = ThreadLocalRandom.current().nextInt(1, seedRows + 1);
+            if (sql(conn, "UPDATE " + table + " SET val1=val1+1, val2=val2+1 WHERE id=" + id) > 0)
+                ok.incrementAndGet();
+            if (updatePaceMs > 0) Thread.sleep(updatePaceMs);
+        });
     }
 
     @Override
-    public void execute(String[] args) throws Exception {
-        if (args.length == 0 || hasArg(args, "-h") || hasArg(args, "--help")) {
-            printHelp();
-            return;
-        }
-
-        String durationStr = getArg(args, "-duration");
-        if (durationStr == null) {
-            System.err.println(RED + " 参数错误: 缺失必填参数 -duration (ms)" + RESET);
-            printHelp();
-            return;
-        }
-
-        long durationMs = Long.parseLong(durationStr);
-        int threads = parseIntArg(args, "-threads", 24);
-        int checkpointIntervalMs = parseIntArg(args, "-interval", 2000);
-
-        System.out.println(CYAN + " >>> " + RESET + BOLD + "启动双写缓冲区 (DWB) 写入争用与 Checkpoint 刷盘雪崩不利注入" + RESET);
-        System.out.println("   扰动线程数: " + threads + " | Checkpoint 周期: " + checkpointIntervalMs + " ms | 持续时间: " + durationMs + " ms");
-
-        ExecutorService executor = Executors.newFixedThreadPool(threads + 1);
-
-        // 1. 启动定频 Checkpoint 触发线程
-        executor.execute(() -> runCheckpointLoop(checkpointIntervalMs));
-
-        // 2. 启动并发离散更新线程，制造散列脏页
-        for (int i = 0; i < threads; i++) {
-            executor.execute(this::runDiscreteDirtyWorker);
-        }
-
-        long endTime = System.currentTimeMillis() + durationMs;
-        while (System.currentTimeMillis() < endTime) {
-            Thread.sleep(2000);
-            System.out.println("   [DWB Hammer] 累计产生随机离散更新: " + updateCount.get() +
-                               ", 触发显式 Checkpoint: " + checkpointCount.get() +
-                               ", 异常: " + updateErrors.get());
-        }
-
-        // 3. 撤除不利
-        System.out.println(YELLOW + " >>> 注入时长已到，正在撤除离散更新与 Checkpoint 压力..." + RESET);
-        running.set(false);
-        executor.shutdown();
-        if (!executor.awaitTermination(15, TimeUnit.SECONDS)) {
-            executor.shutdownNow();
-        }
-
-        System.out.println(CYAN + " >>> DWB 刷脏注入结束，总计生成离散脏页更新: " + updateCount.get() +
-                           ", 触发 Checkpoint: " + checkpointCount.get() + RESET);
-    }
-
-    private void runCheckpointLoop(int intervalMs) {
-        try (Connection conn = getConnection()) {
-            conn.setAutoCommit(true);
-            try (Statement stmt = conn.createStatement()) {
-                while (running.get()) {
-                    try {
-                        long t0 = System.currentTimeMillis();
-                        stmt.execute("CHECKPOINT;");
-                        checkpointCount.incrementAndGet();
-                        long cost = System.currentTimeMillis() - t0;
-                        long sleepTime = Math.max(100, intervalMs - cost);
-                        Thread.sleep(sleepTime);
-                    } catch (SQLException e) {
-                        try {
-                            Thread.sleep(intervalMs);
-                        } catch (InterruptedException ignored) {}
-                    }
-                }
-            }
-        } catch (Exception e) {
-            System.err.println("   [Checkpoint Thread] 发生异常: " + e.getMessage());
-        }
-    }
-
-    private void runDiscreteDirtyWorker() {
-        String sql = "UPDATE bmsql_stock SET s_quantity = s_quantity + 1, s_ytd = s_ytd + 1 WHERE s_w_id = 1 AND s_i_id = ?";
-        try (Connection conn = getConnection()) {
-            conn.setAutoCommit(true);
-            try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
-                while (running.get()) {
-                    try {
-                        // 在 100,000 个商品行中完全随机选取，强力打散数据块局部性
-                        int randomItemId = ThreadLocalRandom.current().nextInt(1, 100001);
-                        pstmt.setInt(1, randomItemId);
-                        pstmt.executeUpdate();
-                        updateCount.incrementAndGet();
-                    } catch (SQLException e) {
-                        updateErrors.incrementAndGet();
-                        try {
-                            Thread.sleep(20);
-                        } catch (InterruptedException ignored) {}
-                    }
-                }
-            }
-        } catch (Exception e) {
-            System.err.println("   [Dirty Worker] 连接异常: " + e.getMessage());
-        }
-    }
-
-    private int parseIntArg(String[] args, String target, int defaultValue) {
-        String val = getArg(args, target);
-        if (val == null) return defaultValue;
-        try {
-            return Integer.parseInt(val.trim());
-        } catch (NumberFormatException e) {
-            return defaultValue;
+    protected void cleanup() throws Exception {
+        if (created && table != null) {
+            try (Connection drop = open()) {
+                sql(drop, "DROP TABLE IF EXISTS " + table);
+            } catch (Exception ignored) {}
         }
     }
 
     @Override
     public void printHelp() {
         System.out.println("用例: dwb_hammer (双写缓冲区 DWB 写入争用与 Checkpoint 刷盘雪崩)");
+        System.out.println("说明: 使用独立的测试表制造离散脏页与刷盘压力，完全隔离且不触碰业务事务涉及的表。");
         System.out.println("参数:");
         System.out.println("  -duration <ms>   持续时间(毫秒) [必填]");
-        System.out.println("  -threads <num>   离散刷脏更新线程数 [默认: 24]");
+        System.out.println("  -threads <num>   离散刷脏更新线程数 [配置自适应，显式值受安全上限约束]");
         System.out.println("  -interval <ms>   Checkpoint 触发周期(毫秒) [默认: 2000]");
+        System.out.println("  -table <name>    自定义测试表名 [选填，严禁指定业务事务表，默认自动创建独立隔离表]");
     }
 }

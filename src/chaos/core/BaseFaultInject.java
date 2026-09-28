@@ -67,6 +67,7 @@ public abstract class BaseFaultInject {
             String lowerDb = dbType.toLowerCase();
             switch (lowerDb) {
                 case "opengauss":
+                case "og":
                     // Some openGauss JDBC distributions expose the driver as org.postgresql.Driver.
                     driverClass = "org.opengauss.Driver";
                     break;
@@ -138,6 +139,75 @@ public abstract class BaseFaultInject {
 
     protected Connection getConnection() throws SQLException {
         return DriverManager.getConnection(url, user, password);
+    }
+
+    private final java.util.Map<String, String> settings = new java.util.HashMap<>();
+
+    /** Read only; unavailable settings retain caller defaults. Each call uses a fresh connection. */
+    public java.util.Map<String, String> querySettings(String... names) {
+        java.util.Map<String, String> result = new java.util.LinkedHashMap<>();
+        if (names == null || names.length == 0) return result;
+        StringBuilder sql = new StringBuilder("SELECT name, setting FROM pg_settings WHERE name IN (");
+        for (int i = 0; i < names.length; i++) sql.append(i == 0 ? "?" : ",?");
+        sql.append(")");
+        try (Connection conn = getConnection();
+             java.sql.PreparedStatement stmt = conn.prepareStatement(sql.toString())) {
+            for (int i = 0; i < names.length; i++) stmt.setString(i + 1, names[i]);
+            try (java.sql.ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) result.put(rs.getString(1), rs.getString(2));
+            }
+        } catch (Exception e) {
+            logAdaptive("Settings unavailable/partial: " + e.getMessage());
+        }
+        settings.putAll(result);
+        return result;
+    }
+
+    protected String settingStr(String name, String def) {
+        if (!settings.containsKey(name)) querySettings(name);
+        String value = settings.get(name);
+        return value == null ? def : value;
+    }
+
+    protected int settingInt(String name, int def) {
+        try { return Integer.parseInt(settingStr(name, "").trim()); }
+        catch (RuntimeException e) { return def; }
+    }
+
+    protected boolean settingBool(String name, boolean def) {
+        String value = settingStr(name, "").trim();
+        if ("on".equalsIgnoreCase(value) || "true".equalsIgnoreCase(value) || "1".equals(value)) return true;
+        if ("off".equalsIgnoreCase(value) || "false".equalsIgnoreCase(value) || "0".equals(value)) return false;
+        return def;
+    }
+
+    protected long settingKB(String name, long def) {
+        String value = settingStr(name, "").trim().toUpperCase(java.util.Locale.ROOT);
+        try {
+            long multiplier = 1;
+            if (value.endsWith("GB")) { multiplier = 1024 * 1024; value = value.substring(0, value.length() - 2); }
+            else if (value.endsWith("MB")) { multiplier = 1024; value = value.substring(0, value.length() - 2); }
+            else if (value.endsWith("KB")) value = value.substring(0, value.length() - 2);
+            return Math.multiplyExact(Long.parseLong(value.trim()), multiplier);
+        } catch (RuntimeException e) { return def; }
+    }
+
+    public long memoryUnits() {
+        return Math.max(1L, settingKB("max_process_memory", 2097152L) / 2097152L);
+    }
+
+    public boolean isEnterprise() {
+        return memoryUnits() >= 16 || settingInt("max_connections", 100) >= 150;
+    }
+
+    protected int scaleByMemory(int baseThreads, int cap) {
+        long units = memoryUnits();
+        return (int) Math.max(baseThreads, Math.min(Math.max(baseThreads, cap),
+                (long) baseThreads * Math.min(units, Integer.MAX_VALUE)));
+    }
+
+    protected void logAdaptive(String msg) {
+        System.out.println("   [Adaptive] " + msg);
     }
 
     protected String getStandardDbType() {
