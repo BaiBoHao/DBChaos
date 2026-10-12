@@ -597,9 +597,14 @@
       "subsystem": "storage",
       "caseKey": "temp_catalog_bloat",
       "title": "临时表高频生灭导致系统目录膨胀与元数据锁竞争",
-      "description": "高频并发创建与删除临时表，在核心系统目录表堆积大量 Dead Tuples，测试元数据访问自愈耗时。",
+      "description": "两种逻辑：resource 模式高频并发创建与删除临时表，制造 CPU/IO 与线程池资源争用；lock 模式由特权(sysadmin)会话对系统目录持关系锁，制造真实元数据锁竞争（阻塞目录读者）。",
       "injectorClass": "chaos.inject.TempCatalogBloatInject",
-      "exampleArgs": "-duration 60000 -threads 16",
+      "exampleArgs": "-mode resource -duration 60000 -threads 16",
+      "defaultMode": "resource",
+      "allowedModes": [
+        "resource",
+        "lock"
+      ],
       "generatorProfiles": [
         {
           "id": 225,
@@ -607,10 +612,31 @@
           "description": "DBChaos Temp Table Catalog Bloat",
           "category": "storage engine",
           "args": [
+            "-mode",
+            "resource",
             "-duration",
             "60000",
             "-threads",
             "16"
+          ],
+          "duringSec": 60
+        },
+        {
+          "id": 226,
+          "key": "temp_catalog_bloat_lock",
+          "description": "DBChaos Privileged Catalog Lock Contention",
+          "category": "storage engine",
+          "args": [
+            "-mode",
+            "lock",
+            "-duration",
+            "60000",
+            "-threads",
+            "1",
+            "-hold_ms",
+            "500",
+            "-gap_ms",
+            "100"
           ],
           "duringSec": 60
         }

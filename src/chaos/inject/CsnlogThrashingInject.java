@@ -25,11 +25,13 @@ public class CsnlogThrashingInject extends AdaptiveFaultInject {
             sql(anchor, "SELECT txid_current()");
         }
         for (int i=0; i<threads; i++) {
-            final boolean[] initialized = {false};
+            // ThreadLocal (not a shared array): closed-loop escalation may run this same closure on extra
+            // threads, and each such thread owns a distinct connection/session needing its own temp table.
+            final ThreadLocal<Boolean> initialized = ThreadLocal.withInitial(() -> Boolean.FALSE);
             worker(conn -> {
-                if (!initialized[0]) {
+                if (!initialized.get()) {
                     sql(conn, "CREATE TEMP TABLE chaos_xid_burn (id int)");
-                    initialized[0] = true;
+                    initialized.set(Boolean.TRUE);
                 }
                 conn.setAutoCommit(false);
                 try {
