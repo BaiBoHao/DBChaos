@@ -275,7 +275,7 @@
       "title": "热点更新与唯一性冲突",
       "description": "模拟热点行重复事务执行，诱发行锁等待、死锁或唯一性冲突。",
       "injectorClass": "chaos.inject.DuplicateTxnInject",
-      "exampleArgs": "-sessions 50 -duration 60 -mode UPDATE",
+      "exampleArgs": "-sessions 50 -duration 60000 -mode UPDATE",
       "generatorProfiles": [
         {
           "id": 206,
@@ -286,7 +286,7 @@
             "-sessions",
             "50",
             "-duration",
-            "60",
+            "60000",
             "-mode",
             "UPDATE"
           ],
@@ -301,7 +301,7 @@
             "-sessions",
             "50",
             "-duration",
-            "60",
+            "60000",
             "-mode",
             "INSERT"
           ],
@@ -346,7 +346,7 @@
       "title": "Prepared/XA 事务积压",
       "description": "并发触发 Prepared Transaction / XA Prepare，挤兑二阶段提交事务上限。",
       "injectorClass": "chaos.inject.MaxPreparedInject",
-      "exampleArgs": "-count 201 -duration 60 -concurrency 50",
+      "exampleArgs": "-duration 60000",
       "generatorProfiles": [
         {
           "id": 216,
@@ -354,12 +354,8 @@
           "description": "DBChaos Prepared Transaction Limit",
           "category": "transaction concurrency management",
           "args": [
-            "-count",
-            "201",
             "-duration",
-            "60",
-            "-concurrency",
-            "50"
+            "60000"
           ],
           "duringSec": 60
         }

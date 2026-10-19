@@ -74,6 +74,7 @@ public class NestedWorkerExhaustionInject extends AdaptiveFaultInject {
                         sql(conn, "CREATE PROCEDURE " + inner + "(v int) AS PRAGMA AUTONOMOUS_TRANSACTION; BEGIN " + hold + "END;");
                         innerCreated = true;
                     } catch (SQLException e) {
+                        recordTestError(e);
                         logAdaptive("Autonomous transaction registration unavailable (" + e.getMessage() + ")");
                         slots = 0;
                     }

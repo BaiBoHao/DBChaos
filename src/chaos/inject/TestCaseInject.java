@@ -7,6 +7,11 @@ import chaos.core.BaseFaultInject;
  * 通过模板生成后，请补充实际注入逻辑、参数校验与清理策略。
  */
 public class TestCaseInject extends BaseFaultInject {
+    @Override
+    public void reportTest() {
+        printTestReport();
+    }
+
     private static final String RESET  = "\u001B[0m";
     private static final String CYAN   = "\u001B[36m";
     private static final String YELLOW = "\u001B[33m";

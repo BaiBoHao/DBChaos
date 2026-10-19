@@ -21,6 +21,11 @@ import java.util.concurrent.TimeUnit;
  * 3. conn_storm (连接风暴)
  */
 public class MaxConnectionInject extends BaseFaultInject {
+    @Override
+    public void reportTest() {
+        printTestReport();
+    }
+
 
     private int dbMaxConnections = 0;
     private int dbMaxThreads = 0;
@@ -86,6 +91,7 @@ public class MaxConnectionInject extends BaseFaultInject {
         System.out.println("【环境探测】 最大连接数: " + dbMaxConnections + " | 线程池上限: " + dbMaxThreads);
 
         // 根据模式路由
+        if (java.util.Arrays.asList("thread_saturation", "conn_exhaustion", "conn_storm").contains(mode.toLowerCase())) markFaultStarted();
         switch (mode.toLowerCase()) {
             case "thread_saturation":
                 int overflow = (count > 0) ? count : 32;
@@ -137,10 +143,12 @@ public class MaxConnectionInject extends BaseFaultInject {
                         parseOpenGaussThreadPool(rs.getString(1));
                     }
                 } catch (SQLException e) {
+                    recordTestError(e);
                     // 部分PG库没有线程池，忽略此错误
                 }
             } 
         } catch (SQLException e) {
+            recordTestError(e);
             System.err.println("数据库配置探测失败: " + e.getMessage());
         }
     }
@@ -179,7 +187,7 @@ public class MaxConnectionInject extends BaseFaultInject {
                 public void run() {
                     try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
                         stmt.execute(currentSleepSql);
-                    } catch (Exception ignored) {}
+                    } catch (Exception ignored) { recordTestError(ignored); }
                 }
             });
         }
@@ -200,7 +208,7 @@ public class MaxConnectionInject extends BaseFaultInject {
                         Connection conn = getConnection();
                         conn.setAutoCommit(true);
                         connectionPool.add(conn);
-                    } catch (Exception e) {}
+                    } catch (Exception e) { recordTestError(e); }
                 }
             });
         }
@@ -221,6 +229,7 @@ public class MaxConnectionInject extends BaseFaultInject {
                             try (Statement stmt = conn.createStatement()) {
                                 stmt.execute(heartbeatSql);
                             } catch (SQLException ignored) {
+                                recordTestError(ignored);
                                 Thread.sleep(100);
                             }
                         }
@@ -232,7 +241,7 @@ public class MaxConnectionInject extends BaseFaultInject {
         try { executor.awaitTermination(durationMs + 5000, TimeUnit.MILLISECONDS); } catch (InterruptedException ignored) {}
 
         for (Connection conn : connectionPool) {
-            try { if (conn != null) conn.close(); } catch (SQLException ignored) {}
+            try { if (conn != null) conn.close(); } catch (SQLException ignored) { recordTestError(ignored); }
         }
     }
 
@@ -251,6 +260,7 @@ public class MaxConnectionInject extends BaseFaultInject {
                             try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
                                 stmt.execute(heartbeatSql);
                             } catch (SQLException ignored) {
+                                recordTestError(ignored);
                                 Thread.sleep(10);
                             }
                         }

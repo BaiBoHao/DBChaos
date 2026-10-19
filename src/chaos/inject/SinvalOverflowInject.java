@@ -31,7 +31,7 @@ public class SinvalOverflowInject extends AdaptiveFaultInject {
             sql(conn, "COMMENT ON SCHEMA public IS 'chaos_inval_" + System.nanoTime() + "'");
             try {
                 sql(conn, "SELECT gs_gsc_clean((SELECT oid FROM pg_database WHERE datname=current_database()))");
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) { recordTestError(ignored); }
             ok.incrementAndGet();
         });
 
@@ -58,7 +58,7 @@ public class SinvalOverflowInject extends AdaptiveFaultInject {
                 sql(clean, "DROP TABLE IF EXISTS " + table + "_" + i);
             }
             sql(clean, "COMMENT ON SCHEMA public IS NULL");
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) { recordTestError(ignored); }
     }
 
     @Override

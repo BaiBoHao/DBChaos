@@ -8,6 +8,11 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /** Shared lifecycle for the seven adaptive white-box cases; no database access until execute. */
 abstract class AdaptiveFaultInject extends BaseFaultInject {
+    @Override
+    public void reportTest() {
+        printTestReport();
+    }
+
     static { DriverManager.setLoginTimeout(10); } // bound connection attempts so a wedged probe cannot hang teardown
 
     protected final AtomicLong ok = new AtomicLong();
@@ -54,6 +59,7 @@ abstract class AdaptiveFaultInject extends BaseFaultInject {
             int reserved = isEnterprise() ? 32 : 20;
             if (settingInt("max_connections", 100) <= reserved)
                 throw new IllegalStateException("No connection budget after reserving " + reserved + " TPC-C sessions");
+            markFaultStarted();
             configure(args);
             if (closedLoop) {
                 baselineProbeMs = minProbeMs(5);
@@ -73,6 +79,7 @@ abstract class AdaptiveFaultInject extends BaseFaultInject {
             Thread.sleep(ms);
         } catch (Exception e) {
             failure(e);
+            throw e;
         } finally {
             running = false;
             Thread ctrl = controller;
@@ -104,7 +111,7 @@ abstract class AdaptiveFaultInject extends BaseFaultInject {
         }
         if (ok.get() == 0) {
             System.err.println("   EFFECTIVE_WORK_ZERO: " + faultType);
-            System.exit(3);
+            throw new TestExecutionException("EFFECTIVE_WORK_ZERO: " + faultType, 3);
         }
     }
 
@@ -158,6 +165,7 @@ abstract class AdaptiveFaultInject extends BaseFaultInject {
             }
             return best / 1e6;
         } catch (Exception e) {
+            recordTestError(e);
             return Double.MAX_VALUE;
         }
     }
@@ -242,6 +250,7 @@ abstract class AdaptiveFaultInject extends BaseFaultInject {
 
     protected void failure(Exception e) { failure(activeSql.get(), e); }
     protected synchronized void failure(String sql, Exception e) {
+        recordTestError(e);
         errors.incrementAndGet();
         String message = String.valueOf(e.getMessage());
         if (messages.size() < 3 && messages.add(message))

@@ -1,6 +1,7 @@
 package chaos.inject;
 
 import chaos.core.BaseFaultInject;
+import chaos.core.PreflightChecks;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -20,6 +21,11 @@ import java.util.concurrent.atomic.AtomicLong;
  * 通过长事务钉住快照地平线，使高频 UPDATE 生成的旧版本无法被及时清理。
  */
 public class MvccBloatInject extends BaseFaultInject {
+    @Override
+    public void reportTest() {
+        printTestReport();
+    }
+
     private static final String RESET  = "\u001B[0m";
     private static final String CYAN   = "\u001B[36m";
     private static final String YELLOW = "\u001B[33m";
@@ -36,11 +42,30 @@ public class MvccBloatInject extends BaseFaultInject {
     }
 
     @Override
+    protected void preflight(String[] args) throws Exception {
+        long duration = preflightLong(args, "-duration", 0);
+        int anchors = preflightInt(args, "-anchors", 1);
+        int mutators = preflightInt(args, "-mutators", 8);
+        int rows = preflightInt(args, "-rows", 20000);
+        int payload = preflightInt(args, "-payload-kb", 2);
+        PreflightChecks.require(payload <= Integer.MAX_VALUE / 1024, "-payload-kb 过大");
+        try (PreflightChecks checks = new PreflightChecks(getConnection(), getStandardDbType())) {
+            checks.transactionalEngine();
+            checks.snapshot(duration);
+            checks.cleanupEnabled();
+            checks.connections((long) anchors + mutators);
+        }
+        preflightProbes().snapshotAndScans(true);
+    }
+
+    @Override
     public void execute(String[] args) throws Exception {
         if (args.length == 0 || hasArg(args, "-h") || hasArg(args, "--help")) {
             printHelp();
             return;
         }
+
+        runPreflight(args);
 
         String durationStr = getArg(args, "-duration");
         if (durationStr == null) {
@@ -163,6 +188,7 @@ public class MvccBloatInject extends BaseFaultInject {
             }
             System.out.println("[Anchor-" + anchorId + "] 已固定快照，事务保持中...");
         } catch (SQLException e) {
+            recordTestError(e);
             System.err.println("[Anchor-" + anchorId + "] 快照锚点建立失败: " + e.getMessage());
         }
     }
@@ -178,6 +204,7 @@ public class MvccBloatInject extends BaseFaultInject {
                 pstmt.executeUpdate();
                 updateCount.incrementAndGet();
             } catch (SQLException e) {
+                recordTestError(e);
                 updateErrors.incrementAndGet();
             }
         }
@@ -193,7 +220,7 @@ public class MvccBloatInject extends BaseFaultInject {
                             + " vacuum=" + rs.getLong(2)
                             + " autovacuum=" + rs.getLong(3));
                 }
-            } catch (SQLException ignored) {}
+            } catch (SQLException ignored) { recordTestError(ignored); }
         }
         System.out.println();
     }
@@ -206,7 +233,7 @@ public class MvccBloatInject extends BaseFaultInject {
                         conn.rollback();
                         conn.close();
                     }
-                } catch (SQLException ignored) {}
+                } catch (SQLException ignored) { recordTestError(ignored); }
             }
             anchorConnections.clear();
         }
@@ -215,7 +242,7 @@ public class MvccBloatInject extends BaseFaultInject {
     private void cleanupEnvironment() {
         try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
             stmt.execute("DROP TABLE IF EXISTS " + tableName);
-        } catch (SQLException ignored) {}
+        } catch (SQLException ignored) { recordTestError(ignored); }
     }
 
     private int parseIntArg(String[] args, String key, int defaultValue) {

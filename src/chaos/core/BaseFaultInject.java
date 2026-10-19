@@ -228,6 +228,46 @@ public abstract class BaseFaultInject {
         return null;
     }
 
+    /** Extension hook: faults without special prerequisites keep the default no-op. */
+    protected void preflight(String[] args) throws Exception {}
+
+    /** Must run before any setup/cleanup or pressure threads are started. */
+    protected final void runPreflight(String[] args) throws Exception {
+        try {
+            preflight(args);
+            System.out.println("[Preflight] " + faultType + " 预检通过");
+            markFaultStarted();
+        } catch (Exception e) {
+            throw new IllegalStateException("[Preflight] " + faultType
+                    + " 预检失败，退出测试: " + e.getMessage(), e);
+        }
+    }
+
+    protected PreflightProbes preflightProbes() {
+        return new PreflightProbes(this::getConnection, getStandardDbType());
+    }
+
+    protected String preflightArg(String[] args, String key) {
+        String value = getArg(args, key);
+        if (hasArg(args, key) && value == null) {
+            throw new IllegalArgumentException(key + " 缺少值");
+        }
+        return value;
+    }
+
+    protected long preflightLong(String[] args, String key, long fallback) {
+        String raw = preflightArg(args, key);
+        long value = raw == null ? fallback : Long.parseLong(raw);
+        PreflightChecks.require(value > 0, key + " 必须为正整数");
+        return value;
+    }
+
+    protected int preflightInt(String[] args, String key, int fallback) {
+        long value = preflightLong(args, key, fallback);
+        PreflightChecks.require(value <= Integer.MAX_VALUE, key + " 超出整数范围");
+        return (int) value;
+    }
+
     public void printHelp() {}
 
     public BaseFaultInject(String dbType, String faultType) {
@@ -238,4 +278,105 @@ public abstract class BaseFaultInject {
     }
 
     public abstract void execute(String[] args) throws Exception;
+
+    /** 输出本次测试报告；子类可在通用报告之外补充自己的效果指标。 */
+    public abstract void reportTest();
+
+    /** 保留无有效注入等已有非零退出语义，同时确保退出前生成报告。 */
+    public static final class TestExecutionException extends IllegalStateException {
+        private final int exitCode;
+        public TestExecutionException(String message, int exitCode) {
+            super(message);
+            this.exitCode = exitCode;
+        }
+        public int getExitCode() { return exitCode; }
+    }
+
+    private long reportStarted;
+    private chaos.monitor.ResilienceMonitor resilienceMonitor;
+
+    public final void observeBusiness(chaos.monitor.ResilienceMonitor monitor) {
+        this.resilienceMonitor = monitor;
+        monitor.observeDatabase(this::getConnection);
+    }
+
+    /** 正式注入（含准备负载）开始；参数检查及 SQL 能力预检须先完成。 */
+    protected final void markFaultStarted() {
+        if (resilienceMonitor != null) resilienceMonitor.faultStarted();
+    }
+    private volatile boolean executionFailed;
+    private final java.util.concurrent.atomic.AtomicLong observedErrors = new java.util.concurrent.atomic.AtomicLong();
+    private final java.util.Set<String> errorSamples = new java.util.LinkedHashSet<>();
+    private final java.util.Set<String> checkHints = new java.util.LinkedHashSet<>();
+
+    /** CLI 的统一入口：异常继续交给调用者处理，报告在退出前输出。 */
+    public final void executeWithReport(String[] args) throws Exception {
+        if (args.length == 0 || hasArg(args, "-h") || hasArg(args, "--help")) {
+            execute(args);
+            return;
+        }
+        reportStarted = System.nanoTime();
+        executionFailed = false;
+        observedErrors.set(0);
+        synchronized (this) { errorSamples.clear(); checkHints.clear(); }
+        try {
+            execute(args);
+        } catch (Exception | OutOfMemoryError e) {
+            executionFailed = true;
+            recordTestError(e);
+            throw e;
+        } finally {
+            if (resilienceMonitor != null) resilienceMonitor.finish(executionFailed);
+            reportTest();
+        }
+    }
+
+    /** 供压力线程和清理逻辑记录已捕获的异常；只保留少量样本。 */
+    protected final synchronized void recordTestError(Throwable error) {
+        observedErrors.incrementAndGet();
+        for (Throwable cause = error; cause != null; cause = cause.getCause()) {
+            String state = cause instanceof SQLException ? ((SQLException) cause).getSQLState() : null;
+            String message = String.valueOf(cause.getMessage());
+            String lower = message.toLowerCase(java.util.Locale.ROOT);
+            if (errorSamples.size() < 5) {
+                // 不在报告中泄露连接 URL 或密码，也不输出完整 SQL。
+                if (password != null && !password.isEmpty()) message = message.replace(password, "[REDACTED]");
+                if (url != null && !url.isEmpty()) message = message.replace(url, "[JDBC_URL]");
+                message = message.replace('\n', ' ').replace('\r', ' ');
+                errorSamples.add(cause.getClass().getSimpleName() + (state == null ? "" : " SQLState=" + state)
+                        + ": " + message.substring(0, Math.min(400, message.length())));
+            }
+            if ("53100".equals(state) || lower.contains("no space left") || lower.contains("disk full"))
+                checkHints.add("请检查数据库数据盘、WAL/日志盘剩余空间及存储配额。");
+            if (cause instanceof OutOfMemoryError || "53200".equals(state) || lower.contains("out of memory") || lower.contains("堆不足"))
+                checkHints.add("请检查数据库与执行机内存、容器内存限制及 JVM -Xmx，核对载荷和并发参数。");
+            if ("42501".equals(state) || "28000".equals(state) || "28P01".equals(state) || lower.contains("permission denied") || lower.contains("access denied"))
+                checkHints.add("请检查数据库连接账号、认证配置及建表、读写、事务和监控视图权限。");
+            if ("53300".equals(state) || lower.contains("too many connections") || lower.contains("连接余量"))
+                checkHints.add("请检查 max_connections、账号连接限额、现有连接数及测试并发。");
+            if (state != null && state.startsWith("08"))
+                checkHints.add("请检查数据库服务状态、网络连通性、连接配置及服务器日志。");
+            if (lower.contains("max_allowed_packet") || lower.contains("packet too large"))
+                checkHints.add("请检查 max_allowed_packet、单次载荷大小及驱动请求大小限制。");
+            if ("42P01".equals(state) || "3F000".equals(state) || "42703".equals(state))
+                checkHints.add("请检查目标表、列及 schema 是否存在，确认连接数据库和 search_path 配置。");
+            if ("42704".equals(state) || "0A000".equals(state) || lower.contains("max_prepared_transactions") || lower.contains("autovacuum"))
+                checkHints.add("请检查目标数据库版本、SQL 功能支持及该故障所需的数据库参数。");
+        }
+    }
+
+    /** 通用报告不把 SQL 错误直接解释为环境配置问题或韧性结论。 */
+    protected final synchronized void printTestReport() {
+        long elapsed = reportStarted == 0 ? 0 : (System.nanoTime() - reportStarted) / 1000000;
+        System.out.println("\n[TestReport] 故障=" + faultType + " 数据库=" + dbType);
+        System.out.println("[TestReport] 执行状态=" + (executionFailed ? "执行失败" : observedErrors.get() > 0 ? "执行结束，存在错误记录" : "执行结束")
+                + " 耗时=" + elapsed + "ms 异常记录数=" + observedErrors.get());
+        for (String sample : errorSamples) System.out.println("[TestReport] 异常样本: " + sample);
+        for (String hint : checkHints) System.out.println("[TestReport] 检查建议（需结合日志确认原因）: " + hint);
+        if (executionFailed && checkHints.isEmpty())
+            System.out.println("[TestReport] 请根据异常检查故障参数、数据库配置、权限、目标表及服务器日志。");
+        System.out.println("[TestReport] 执行结束不代表故障生效；请结合注入计数、业务影响和恢复情况评价韧性。");
+        if (resilienceMonitor != null) resilienceMonitor.report();
+        else System.out.println("[Resilience] 未提供业务结果源，六项业务韧性指标不可用；通过 --wait-stable <结果目录> 启用全程观测。");
+    }
 }

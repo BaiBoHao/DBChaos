@@ -18,6 +18,11 @@ public class {{CLASS_NAME}} extends BaseFaultInject {
     }
 
     @Override
+    public void reportTest() {
+        printTestReport();
+    }
+
+    @Override
     public void execute(String[] args) throws Exception {
         if (args.length == 0 || hasArg(args, "-h") || hasArg(args, "--help")) {
             printHelp();
@@ -36,6 +41,7 @@ public class {{CLASS_NAME}} extends BaseFaultInject {
         System.out.println(CYAN + " >>> " + RESET + BOLD + "启动 {{CASE_TITLE}}" + RESET);
         System.out.println("   持续时间: " + durationMs + " ms");
 
+        // 实现实际注入时，先调用 markFaultStarted()，再执行负载并在 finally 中撤销/清理。
         // TODO: 在这里补充具体注入逻辑。
     }
 

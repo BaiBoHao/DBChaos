@@ -11,11 +11,17 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 import chaos.core.BaseFaultInject;
+import chaos.core.PreflightChecks;
 
 /**
  * 大规模事务回滚故障注入。
  */
 public class MassiveRollbackInject extends BaseFaultInject {
+    @Override
+    public void reportTest() {
+        printTestReport();
+    }
+
 
     private final AtomicLong clientCommits = new AtomicLong(0);
     private final AtomicLong clientRollbacks = new AtomicLong(0);
@@ -42,11 +48,26 @@ public class MassiveRollbackInject extends BaseFaultInject {
     }
 
     @Override
+    protected void preflight(String[] args) throws Exception {
+        preflightLong(args, "-duration", 0);
+        int threads = preflightInt(args, "-threads", 16);
+        String rawRate = preflightArg(args, "-rate");
+        double rate = rawRate == null ? 0.7 : Double.parseDouble(rawRate);
+        PreflightChecks.require(Double.isFinite(rate) && rate >= 0 && rate <= 1, "-rate 必须在 0～1 之间");
+        try (PreflightChecks checks = new PreflightChecks(getConnection(), getStandardDbType())) {
+            checks.connections(threads);
+            checks.transactionalEngine();
+        }
+    }
+
+    @Override
     public void execute(String[] args) throws Exception {
         if (args.length == 0 || hasArg(args, "-h") || hasArg(args, "--help")) {
             printHelp();
             return;
         }
+
+        runPreflight(args);
 
         String durationStr = getArg(args, "-duration");
         String threadsStr = getArg(args, "-threads");
@@ -96,19 +117,21 @@ public class MassiveRollbackInject extends BaseFaultInject {
              ResultSet rs = stmt.executeQuery(dbNameSql)) {
             if (rs.next()) targetDbName = rs.getString(1);
         } catch (SQLException e) {
+            recordTestError(e);
             System.err.println("无法获取数据库名称: " + e.getMessage());
         }
     }
 
-    private void runRollbackLoad(long durationMs, int threads, double rollbackRate) {
+    private void runRollbackLoad(long durationMs, int threads, double rollbackRate) throws SQLException {
         // 1. 前置环境准备
         try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
             System.out.println(" ➤ 准备持久化表 [" + tableName + "]");
             stmt.execute("DROP TABLE IF EXISTS " + tableName);
             stmt.execute("CREATE TABLE " + tableName + " (id BIGINT, val FLOAT)");
         } catch (SQLException e) {
+            recordTestError(e);
             System.err.println("✘ 环境准备失败: " + e.getMessage());
-            return;
+            throw e;
         }
 
         long endTimeMs = System.currentTimeMillis() + durationMs;
@@ -136,6 +159,7 @@ public class MassiveRollbackInject extends BaseFaultInject {
                         }
                     }
                 } catch (SQLException ignored) {
+                    recordTestError(ignored);
                     // 注入期间的连接中断通常是预期内的
                 }
             });
@@ -151,6 +175,7 @@ public class MassiveRollbackInject extends BaseFaultInject {
             System.out.println(" ➤ 清理环境：删除持久化表 [" + tableName + "]");
             stmt.execute("DROP TABLE IF EXISTS " + tableName);
         } catch (SQLException e) {
+            recordTestError(e);
             System.err.println("✘ 环境清理失败: " + e.getMessage());
         }
     }
@@ -180,6 +205,7 @@ public class MassiveRollbackInject extends BaseFaultInject {
                 }
             }
         } catch (SQLException e) {
+            recordTestError(e);
             System.err.println("指标采集失败: " + e.getMessage());
         }
         return stats;

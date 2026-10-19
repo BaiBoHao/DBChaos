@@ -20,6 +20,11 @@ import chaos.core.BaseFaultInject;
  * 实现跨 Schema 的资源挤兑，验证数据库系统的韧性隔离能力。
  */
 public class PlanFlipInject extends BaseFaultInject {
+    @Override
+    public void reportTest() {
+        printTestReport();
+    }
+
 
     private final AtomicLong totalLatency = new AtomicLong(0);
     private final AtomicLong queryCount = new AtomicLong(0);
@@ -74,6 +79,7 @@ public class PlanFlipInject extends BaseFaultInject {
         long flipInterval = (intervalStr != null) ? Long.parseLong(intervalStr) : 60000;
 
         System.out.println("\u001B[36m ➤ \u001B[0m\u001B[1m画像构造: \u001B[0m\u001B[33m计划震荡\u001B[0m | 表: " + tableName + " | 并发: " + threads);
+        markFaultStarted();
         runPlanOscillation(tableName, threads, durationMs, skewCount, flipInterval);
     }
 
@@ -175,7 +181,7 @@ public class PlanFlipInject extends BaseFaultInject {
                         totalLatency.addAndGet(System.nanoTime() - s);
                         queryCount.incrementAndGet();
                     }
-                } catch (SQLException ignored) {}
+                } catch (SQLException ignored) { recordTestError(ignored); }
             });
         }
     }
@@ -189,7 +195,7 @@ public class PlanFlipInject extends BaseFaultInject {
                     return (val == null) ? "None" : val.toString().split("\\.")[0];
                 }
             }
-        } catch (SQLException e) { return "Error"; }
+        } catch (SQLException e) { recordTestError(e); return "Error"; }
         return "Unknown";
     }
 
@@ -226,6 +232,6 @@ public class PlanFlipInject extends BaseFaultInject {
     private void cleanup(String tableName) {
         try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
             stmt.execute("DROP TABLE IF EXISTS " + tableName);
-        } catch (SQLException ignored) {}
+        } catch (SQLException ignored) { recordTestError(ignored); }
     }
 }

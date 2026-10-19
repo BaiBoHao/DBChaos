@@ -24,8 +24,15 @@
 BENCHMARK_RUN_PATH="/your/path/to/benchmarksql-5.0/run"
 
 # 默认故障时序逻辑 (脚本内固定)
-INJECT_DELAY=3     # 压测启动 3 分钟后注入故障
+INJECT_DELAY=3     # 压测启动后最短预热 3 分钟（性能稳定后才注入）
 FAULT_DURATION=1   # 故障持续时间 1 分钟
+
+# 性能稳定判定（Java 内部通过 --wait-stable 等待稳定后自动注入）
+STABLE_WINDOW=10        # 统计窗口(秒)
+STABLE_WINDOWS=3        # 连续稳定窗口数
+TPS_CV_LIMIT=5          # TPS 变异系数上限(%)
+P95_SWING_LIMIT=10      # p95 波动幅度上限(%)
+BASELINE_EXTRA_WAIT=180 # 最短等待之外的最大追加等待(秒)
 ```
 
 
@@ -88,10 +95,14 @@ FAULT_DURATION=1   # 故障持续时间 1 分钟
 
 1. **启动压测**: 脚本拉起 BenchmarkSQL，默认运行 10 分钟。
 2. **连接检查**: 在注入前先调用 `../scripts/probe/check_db_connection.sh`，确认数据库可连通。
-3. **平稳期 (0-3min)**: 数据库处于正常负载，TPS 曲线平稳。
-4. **注入期 (3-4min)**: DBChaos 介入，执行指定的不利注入。此时您会观察到 TPS 出现明显下跌或剧烈抖动。
-5. **恢复期 (4-10min)**: 故障任务结束，观察数据库是否能自动回升至初始性能水平。
-5. **生成报告**: 压测结束后，自动调用 R 语言引擎在 `results/` 目录下生成可视化 HTML 报告。
+3. **稳定判定与基准采集**: 故障命令通过 `--wait-stable` 在 Java 内等待 TPC-C 成功 TPS 与 p95 连续多个窗口稳定，
+   稳定窗口统计值写入 `<results>/baseline.json`，作为本轮基准；超时未稳定则终止注入。
+   注入后继续采集成功 TPS，撤销后自动观察恢复，并在 `reportTest()` 报告六项业务韧性指标；
+   原始窗口、数据库探针、JSON 和文本报告自动保存在 `result.csv` 同级的 `dbchaos-reports/<本次运行>/`。
+   业务压测应覆盖恢复观测时段（默认最长 180 秒）。详见[指标与判据](../docs/testing/韧性指标与报告.md)。
+4. **注入期**: DBChaos 介入，执行指定的不利注入。此时您会观察到 TPS 出现明显下跌或剧烈抖动。
+5. **恢复期**: 故障任务结束，观察数据库是否能自动回升至基准性能水平。
+6. **生成报告**: 压测结束后，自动调用 R 语言引擎在 `results/` 目录下生成可视化 HTML 报告。
 
 ### 结果查看：
 

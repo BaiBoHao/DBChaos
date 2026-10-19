@@ -9,8 +9,14 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import chaos.core.BaseFaultInject;
+import chaos.core.PreflightChecks;
 
 public class MemoryPressureFault extends BaseFaultInject {
+    @Override
+    public void reportTest() {
+        printTestReport();
+    }
+
     private static final String RESET  = "\u001B[0m";
     private static final String CYAN   = "\u001B[36m";
     private static final String YELLOW = "\u001B[33m";
@@ -24,11 +30,30 @@ public class MemoryPressureFault extends BaseFaultInject {
     }
 
     @Override
+    protected void preflight(String[] args) throws Exception {
+        preflightLong(args, "-duration", 0);
+        int batch = preflightInt(args, "-batch", 100);
+        int threads = preflightInt(args, "-threads", 4);
+        long bytes = batch * 1024L * 1024L;
+        PreflightChecks.require(bytes <= Integer.MAX_VALUE - 8, "-batch 超出 Java 数组上限");
+        Runtime runtime = Runtime.getRuntime();
+        long available = runtime.maxMemory() - (runtime.totalMemory() - runtime.freeMemory());
+        PreflightChecks.require(bytes < available / (2L + threads),
+                "JVM 剩余堆不足以容纳载荷及各并发驱动缓冲，请增大 -Xmx 或降低 -batch/-threads");
+        try (PreflightChecks checks = new PreflightChecks(getConnection(), getStandardDbType())) {
+            checks.connections(threads);
+            checks.packet(bytes);
+        }
+    }
+
+    @Override
     public void execute(String[] args) throws Exception {
         if (args.length == 0 || hasArg(args, "-h") || hasArg(args, "--help")) {
             printHelp();
             return;
         }
+
+        runPreflight(args);
 
         String durationStr = getArg(args, "-duration");
         String batchStr = getArg(args, "-batch");
@@ -67,7 +92,7 @@ public class MemoryPressureFault extends BaseFaultInject {
         System.out.println(CYAN + "  java -jar DBChaos-0.0.1.jar --db opengauss buffer memory_pressure -duration 60000 -batch 50 -threads 8" + RESET);
     }
 
-    private void runMemoryStress(long durationMs, int batchSizeMB, int threads) {
+    private void runMemoryStress(long durationMs, int batchSizeMB, int threads) throws SQLException {
         // 环境准备：创建表
         try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
             String sqlType = getStandardDbType();
@@ -82,8 +107,9 @@ public class MemoryPressureFault extends BaseFaultInject {
                 stmt.execute("CREATE TABLE " + tableName + "(id INT PRIMARY KEY, val BLOB)");
             }
         } catch (SQLException e) {
+            recordTestError(e);
             System.err.println(RED + "✘ 环境初始化失败: " + e.getMessage() + RESET);
-            return;
+            throw e;
         }
 
         // 构造压力数据
@@ -104,7 +130,8 @@ public class MemoryPressureFault extends BaseFaultInject {
                         pstmt.executeUpdate();
                         // 插入成功后不输出太多日志，避免控制台 I/O 干扰注入性能
                     } catch (SQLException e) {
-                        // 注入期间的偶发错误可忽略
+                        recordTestError(e);
+                        // 异常已记录到测试报告，继续观察压力期间的行为。
                     }
                 }
             });
@@ -122,6 +149,7 @@ public class MemoryPressureFault extends BaseFaultInject {
             System.out.println(CYAN + " ➤ 正在清理测试数据..." + RESET);
             stmt.execute("DROP TABLE IF EXISTS " + tableName);
         } catch (SQLException e) {
+            recordTestError(e);
             System.err.println(RED + "✘ 清理失败: " + e.getMessage() + RESET);
         }
     }

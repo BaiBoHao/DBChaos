@@ -81,7 +81,7 @@ public class DwbHammerInject extends AdaptiveFaultInject {
         if (created && table != null) {
             try (Connection drop = open()) {
                 sql(drop, "DROP TABLE IF EXISTS " + table);
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) { recordTestError(ignored); }
         }
     }
 

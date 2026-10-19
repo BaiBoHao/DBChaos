@@ -178,7 +178,7 @@ public class TempCatalogBloatInject extends AdaptiveFaultInject {
                         conn.rollback();
                         conn.close();
                     }
-                } catch (SQLException ignored) {}
+                } catch (SQLException ignored) { recordTestError(ignored); }
                 privConns.remove(conn);
             }
         }
@@ -194,6 +194,7 @@ public class TempCatalogBloatInject extends AdaptiveFaultInject {
             st.execute("SET lockwait_timeout = 5000");
             return true;
         } catch (SQLException e) {
+            recordTestError(e);
             System.err.println("   [lock mode] cannot set maintenance-mode GUCs: " + e.getMessage());
             System.err.println("   [lock mode] this mode needs a sysadmin account able to SET " +
                     "xc_maintenance_mode; pass -su_user/-su_password (current lockUser=" + suUser + ")");
@@ -212,6 +213,7 @@ public class TempCatalogBloatInject extends AdaptiveFaultInject {
                 privStmts.remove(st);
             }
         } catch (SQLException e) {
+            recordTestError(e);
             // lockwait_timeout expiry (contention on the same catalog) is expected and retried.
             String msg = String.valueOf(e.getMessage());
             if ("55P03".equals(e.getSQLState()) || (msg != null && (msg.contains("lock timeout") ||
@@ -236,7 +238,7 @@ public class TempCatalogBloatInject extends AdaptiveFaultInject {
     @Override
     protected void cleanup() throws Exception {
         for (Statement st : privStmts) {
-            try { st.cancel(); } catch (SQLException ignored) {}
+            try { st.cancel(); } catch (SQLException ignored) { recordTestError(ignored); }
         }
         List<Thread> snapshot = new ArrayList<>(lockers);
         for (Thread t : snapshot) t.interrupt();
@@ -253,7 +255,7 @@ public class TempCatalogBloatInject extends AdaptiveFaultInject {
                     c.rollback();
                     c.close();
                 }
-            } catch (SQLException ignored) {}
+            } catch (SQLException ignored) { recordTestError(ignored); }
         }
         privConns.clear();
         if (interrupted) Thread.currentThread().interrupt();

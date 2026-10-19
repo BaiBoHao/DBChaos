@@ -1,6 +1,7 @@
 package chaos.inject;
 
 import chaos.core.BaseFaultInject;
+import chaos.core.PreflightChecks;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -20,6 +21,11 @@ import java.util.concurrent.atomic.AtomicLong;
  * 通过快照锚点与预热膨胀制造大量不可见版本，再用扫描线程放大执行器的读放大与可见性检查开销。
  */
 public class ReadAmpTrapInject extends BaseFaultInject {
+    @Override
+    public void reportTest() {
+        printTestReport();
+    }
+
     private static final String RESET  = "\u001B[0m";
     private static final String CYAN   = "\u001B[36m";
     private static final String YELLOW = "\u001B[33m";
@@ -38,11 +44,34 @@ public class ReadAmpTrapInject extends BaseFaultInject {
     }
 
     @Override
+    protected void preflight(String[] args) throws Exception {
+        long duration = preflightLong(args, "-duration", 0);
+        long warmup = preflightLong(args, "-warmup", 20000);
+        int anchors = preflightInt(args, "-anchors", 1);
+        int mutators = preflightInt(args, "-mutators", 8);
+        int scanners = preflightInt(args, "-scanners", 4);
+        int rows = preflightInt(args, "-rows", 30000);
+        int payload = preflightInt(args, "-payload-kb", 2);
+        PreflightChecks.require(payload <= Integer.MAX_VALUE / 1024, "-payload-kb 过大");
+        PreflightChecks.require(warmup < duration, "-warmup 必须小于 -duration");
+        String mode = preflightArg(args, "-scan-mode");
+        PreflightChecks.require(mode == null || mode.matches("(?i)seq|index|mixed"), "-scan-mode 必须为 seq/index/mixed");
+        try (PreflightChecks checks = new PreflightChecks(getConnection(), getStandardDbType())) {
+            checks.transactionalEngine();
+            checks.snapshot(duration);
+            checks.connections((long) anchors + mutators + scanners);
+        }
+        preflightProbes().snapshotAndScans(false);
+    }
+
+    @Override
     public void execute(String[] args) throws Exception {
         if (args.length == 0 || hasArg(args, "-h") || hasArg(args, "--help")) {
             printHelp();
             return;
         }
+
+        runPreflight(args);
 
         String durationStr = getArg(args, "-duration");
         if (durationStr == null) {
@@ -179,6 +208,7 @@ public class ReadAmpTrapInject extends BaseFaultInject {
             }
             System.out.println("[Anchor-" + anchorId + "] 已固定快照，事务保持中...");
         } catch (SQLException e) {
+            recordTestError(e);
             System.err.println("[Anchor-" + anchorId + "] 快照锚点建立失败: " + e.getMessage());
         }
     }
@@ -191,7 +221,7 @@ public class ReadAmpTrapInject extends BaseFaultInject {
                 pstmt.setInt(1, 1 + random.nextInt(rows));
                 pstmt.executeUpdate();
                 updateCount.incrementAndGet();
-            } catch (SQLException ignored) {}
+            } catch (SQLException ignored) { recordTestError(ignored); }
         }
     }
 
@@ -207,6 +237,7 @@ public class ReadAmpTrapInject extends BaseFaultInject {
                 scanCount.incrementAndGet();
                 totalScanNanos.addAndGet(System.nanoTime() - start);
             } catch (SQLException e) {
+                recordTestError(e);
                 scanErrors.incrementAndGet();
             }
         }
@@ -219,7 +250,7 @@ public class ReadAmpTrapInject extends BaseFaultInject {
         if ("index".equals(scanMode)) {
             int lower = random.nextInt(256);
             int upper = Math.min(255, lower + 32);
-            return "SELECT count(*) FROM " + tableName + " WHERE group_id BETWEEN " + lower + " AND " + upper + " ORDER BY group_id";
+            return "SELECT group_id, count(*) FROM " + tableName + " WHERE group_id BETWEEN " + lower + " AND " + upper + " GROUP BY group_id ORDER BY group_id";
         }
         if (random.nextBoolean()) {
             return "SELECT count(*) FROM " + tableName + " WHERE version >= 0";
@@ -246,7 +277,7 @@ public class ReadAmpTrapInject extends BaseFaultInject {
                         conn.rollback();
                         conn.close();
                     }
-                } catch (SQLException ignored) {}
+                } catch (SQLException ignored) { recordTestError(ignored); }
             }
             anchorConnections.clear();
         }
@@ -255,7 +286,7 @@ public class ReadAmpTrapInject extends BaseFaultInject {
     private void cleanupEnvironment() {
         try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
             stmt.execute("DROP TABLE IF EXISTS " + tableName);
-        } catch (SQLException ignored) {}
+        } catch (SQLException ignored) { recordTestError(ignored); }
     }
 
     private int parseIntArg(String[] args, String key, int defaultValue) {
