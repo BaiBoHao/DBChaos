@@ -10,6 +10,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import chaos.core.BaseFaultInject;
+import chaos.core.PreflightChecks;
 
 /**
  * 未提交事务（长事务锁冲突）故障注入实现。
@@ -17,6 +18,11 @@ import chaos.core.BaseFaultInject;
  * duration 到时统一回滚释放锁。
  */
 public class UncommittedTxnInject extends BaseFaultInject {
+    @Override
+    public void reportTest() {
+        printTestReport();
+    }
+
     // ANSI 颜色定义
     private static final String RESET  = "\u001B[0m";
     private static final String CYAN   = "\u001B[36m";
@@ -32,11 +38,30 @@ public class UncommittedTxnInject extends BaseFaultInject {
     }
 
     @Override
+    protected void preflight(String[] args) throws Exception {
+        long duration = preflightLong(args, "-duration", 0);
+        int holders = preflightInt(args, "-holders", 2);
+        int rows = preflightInt(args, "-rows", 500);
+        PreflightChecks.require((long) holders * rows <= Integer.MAX_VALUE, "持锁行偏移超出整数范围");
+        String tables = preflightArg(args, "-table");
+        if (tables == null) tables = preflightArg(args, "-tables");
+        PreflightChecks.require(tables != null && !tables.trim().isEmpty(), "缺少 -table");
+        List<String> names = parseAndValidateTableNames(tables);
+        try (PreflightChecks checks = new PreflightChecks(getConnection(), getStandardDbType())) {
+            checks.transactionTimeouts(duration);
+            checks.connections(holders);
+            for (String name : names) checks.tableRows(name, (long) holders * rows);
+        }
+    }
+
+    @Override
     public void execute(String[] args) throws Exception {
         if (args.length == 0 || hasArg(args, "-h") || hasArg(args, "--help")) {
             printHelp();
             return;
         }
+
+        runPreflight(args);
 
         // 获取参数
         String durationStr = getArg(args, "-duration");
@@ -115,6 +140,7 @@ public class UncommittedTxnInject extends BaseFaultInject {
                 }
             }
         } catch (SQLException e) {
+            recordTestError(e);
             System.err.println("[Holder-" + id + "] 获取锁失败: " + e.getMessage());
         }
     }
@@ -127,7 +153,7 @@ public class UncommittedTxnInject extends BaseFaultInject {
                         conn.rollback();
                         conn.close();
                     }
-                } catch (SQLException ignored) {}
+                } catch (SQLException ignored) { recordTestError(ignored); }
             }
             activeHolders.clear();
         }

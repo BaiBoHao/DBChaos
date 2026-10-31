@@ -14,6 +14,11 @@ import chaos.core.BaseFaultInject;
  * 依赖基类的 dbType 进行特定引擎路由 (openGauss / OceanBase 等)
  */
 public class StackOverflowInject extends BaseFaultInject {
+    @Override
+    public void reportTest() {
+        printTestReport();
+    }
+
 
     // ANSI 颜色定义
     private static final String RESET  = "\u001B[0m";
@@ -89,6 +94,7 @@ public class StackOverflowInject extends BaseFaultInject {
         System.out.println(CYAN + " >>> " + RESET + BOLD + "正在启动故障注入: " + RESET + YELLOW + "栈溢出 (Stack Overflow)" + RESET);
         System.out.println("   模式: " + finalMode + " | 间隔: " + intervalMs + "ms | 持续: " + durationMs + "ms");
         
+        markFaultStarted();
         runFaultLoop(finalMode, durationMs, intervalMs);
     }
 
@@ -126,9 +132,11 @@ public class StackOverflowInject extends BaseFaultInject {
                 executeFault(conn, mode);
                 System.out.println(GREEN + "指令已送达" + RESET);
             } catch (SQLException e) {
+                recordTestError(e);
                 // 栈溢出通常返回 54001 (PostgreSQL) 或相关错误码
                 System.out.println(YELLOW + "触发预定异常 -> [" + e.getSQLState() + "] " + e.getMessage().split("\n")[0] + RESET);
             } catch (Exception e) {
+                recordTestError(e);
                 System.out.println(RED + "执行异常: " + e.getMessage() + RESET);
             }
 
@@ -215,6 +223,7 @@ public class StackOverflowInject extends BaseFaultInject {
             }
             conn.commit();
         } catch (SQLException e) {
+            recordTestError(e);
             conn.rollback();
             throw e;
         } finally {
@@ -224,7 +233,7 @@ public class StackOverflowInject extends BaseFaultInject {
 
     private void testNestedExpressionStackOverflow(Connection conn) throws SQLException {
         try (Statement stmt = conn.createStatement()) {
-            try { stmt.execute(setStackDepthSql); } catch (SQLException ignored) {}
+            try { stmt.execute(setStackDepthSql); } catch (SQLException ignored) { recordTestError(ignored); }
             StringBuilder sb = new StringBuilder("SELECT 1 WHERE 1=1");
             for (int i = 0; i < 50000; i++) sb.append(" OR 1=1");
             stmt.execute(sb.toString());
@@ -234,7 +243,7 @@ public class StackOverflowInject extends BaseFaultInject {
     private void testViewBombStackOverflow(Connection conn) throws SQLException {
         String sqlFamily = getStandardDbType();
         try (Statement stmt = conn.createStatement()) {
-            try { stmt.execute(setStackDepthSql); } catch (SQLException ignored) {}
+            try { stmt.execute(setStackDepthSql); } catch (SQLException ignored) { recordTestError(ignored); }
             
             String suffix = "_" + (System.currentTimeMillis() % 10000);
             String baseTable = "chaos_base" + suffix;

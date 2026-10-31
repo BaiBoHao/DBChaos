@@ -14,12 +14,19 @@ BENCHMARK_RUN_PATH="/home/baibh/benchmarksql-5.0/run"
 PROP_FILE="opengauss.properties"
 
 # 3. 配置故障注入参数
-INJECT_DELAY=1    # 故障注入的时间点(minute)
+INJECT_DELAY=1    # 注入前最短预热时间(minute)
 FAULT_DURATION=1  # 故障运行的时长(minute)
 # FAULT_PARAMS=$1   # 从命令行参数获取故障参数
 FAULT_PARAMS="$*"
 
-# 4. 获取故障注入jar
+# 4. 基线稳定监控参数
+STABLE_WINDOW=10        # 统计窗口(秒)
+STABLE_WINDOWS=3        # 连续稳定窗口数
+TPS_CV_LIMIT=5          # TPS 变异系数上限(%)
+P95_SWING_LIMIT=10      # p95 波动幅度上限(%)
+BASELINE_EXTRA_WAIT=180 # 最短等待之外的最大追加等待(秒)
+
+# 5. 获取故障注入jar
 CHAOS_PROPS="../resources/chaos.properties"
 CLI_NAME=$(grep "^cli.name=" "$CHAOS_PROPS" | cut -d'=' -f2 | tr -d '\r' | xargs)
 CLI_VER=$(grep "^cli.version=" "$CHAOS_PROPS" | cut -d'=' -f2 | tr -d '\r' | xargs)
@@ -102,16 +109,37 @@ case "$DB_TYPE" in
         ) &
         BENCH_PID=$!
 
-        # 2.等待到注入时间点
-        echo "[INFO] 压测已启动，等待 ${INJECT_DELAY} 分钟后注入故障..."
-        sleep $((INJECT_DELAY * 60))
-
-        # 3.注入故障
+        # 2.Java 内部等待性能稳定后自动注入，并输出基准值
+        echo "[INFO] 等待压测性能稳定（最短 ${INJECT_DELAY} 分钟）..."
+        BASELINE_JSON="$LOCAL_RESULTS_DIR/baseline.json"
+        MONITOR_ARGS=(
+            -window "$STABLE_WINDOW"
+            -stable-windows "$STABLE_WINDOWS"
+            -tps-cv "$TPS_CV_LIMIT"
+            -p95-swing "$P95_SWING_LIMIT"
+            -min-wait "$((INJECT_DELAY * 60))"
+            -max-wait "$((INJECT_DELAY * 60 + BASELINE_EXTRA_WAIT))"
+            -json "$BASELINE_JSON"
+        )
         if [ -n "$FAULT_PARAMS" ]; then
-            echo "[INFO] >>> 正在注入故障: $FAULT_PARAMS"
-            java -jar "$JAR_PATH" --db "$DB_TYPE" $FAULT_PARAMS -duration $((FAULT_DURATION * 60 * 1000))
+            GATE_ARGS=(--wait-stable "$LOCAL_RESULTS_DIR")
+            for ((i = 0; i < ${#MONITOR_ARGS[@]}; i += 2)); do
+                GATE_ARGS+=("--baseline-${MONITOR_ARGS[i]#-}" "${MONITOR_ARGS[i+1]}")
+            done
+            echo "[INFO] 稳定后将自动注入故障: $FAULT_PARAMS"
+            java -jar "$JAR_PATH" --db "$DB_TYPE" $FAULT_PARAMS \
+                -duration $((FAULT_DURATION * 60 * 1000)) "${GATE_ARGS[@]}"
         else
-            echo "[WARN] 未检测到故障参数，仅运行基准压测。"
+            echo "[WARN] 未检测到故障参数，仅运行基准压测和稳定监控。"
+            java -jar "$JAR_PATH" --db "$DB_TYPE" monitor baseline \
+                -result-dir "$LOCAL_RESULTS_DIR" "${MONITOR_ARGS[@]}" -on-timeout fail
+        fi
+        RUN_STATUS=$?
+        if [ "$RUN_STATUS" -ne 0 ]; then
+            echo "错误：稳定监控或故障执行失败（退出码 $RUN_STATUS），停止本轮测试。"
+            kill "$BENCH_PID" 2>/dev/null
+            rm -f "$TEMP_PROP"
+            exit "$RUN_STATUS"
         fi
 
         # 4. 等待后台压测结束

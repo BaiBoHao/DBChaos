@@ -13,6 +13,8 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import chaos.core.BaseFaultInject;
+import chaos.monitor.PerfBaselineMonitor;
+import chaos.monitor.ResilienceMonitor;
 import chaos.registry.CaseDescriptor;
 import chaos.registry.CaseRegistry;
 import chaos.registry.SubsystemDescriptor;
@@ -78,6 +80,12 @@ public class Main {
             command = parseCommandContext(args);
         } catch (IllegalArgumentException e) {
             System.out.println(RED + BOLD + " 参数错误: " + RESET + e.getMessage());
+            System.exit(2);
+            return;
+        }
+
+        if ("monitor".equals(command.subsystem)) {
+            dispatchMonitor(command);
             return;
         }
 
@@ -125,6 +133,29 @@ public class Main {
 
         parseGlobalOverrides(args);
 
+        // The monitor runs in this JVM and must succeed before an injector is created.
+        // Help remains immediate, and a failed/expired baseline never falls through.
+        final PerfBaselineMonitor.Baseline[] measuredBaseline = new PerfBaselineMonitor.Baseline[1];
+        if (!command.helpRequested && command.stabilityResultDir != null) {
+            try {
+                System.out.println("[Gate] 等待业务性能稳定后自动注入: " + command.subsystem + " " + command.caseKey);
+                int status = PerfBaselineMonitor.run(command.baselineArgs, baseline -> measuredBaseline[0] = baseline);
+                if (status != 0) {
+                    System.err.println("[Gate] 性能未达到稳定条件，取消故障注入。");
+                    System.exit(status);
+                    return;
+                }
+            } catch (IllegalArgumentException e) {
+                System.err.println("[Gate] 监控参数错误，取消故障注入: " + e.getMessage());
+                System.exit(2);
+                return;
+            } catch (Exception e) {
+                System.err.println("[Gate] 监控失败，取消故障注入: " + e.getMessage());
+                System.exit(1);
+                return;
+            }
+        }
+
         BaseFaultInject injector = REGISTRY.createInjector(command.dbType, command.subsystem, command.caseKey);
         if (injector == null) {
             System.out.println(RED + BOLD + " 未知的注入入口: " + command.caseKey + RESET);
@@ -139,7 +170,25 @@ public class Main {
         }
 
         try {
-            injector.execute(command.caseArgs);
+            if (measuredBaseline[0] != null) injector.observeBusiness(new ResilienceMonitor(measuredBaseline[0], command.resilience));
+            if (command.stabilityResultDir != null) {
+                System.out.println("[Gate] 性能已稳定，自动开始故障注入: " + command.subsystem + " " + command.caseKey);
+            }
+            injector.executeWithReport(command.caseArgs);
+        } catch (Exception | OutOfMemoryError e) {
+            System.out.println("\n" + RED + BOLD + " 执行异常: " + RESET + e.getMessage());
+            System.exit(e instanceof BaseFaultInject.TestExecutionException
+                    ? ((BaseFaultInject.TestExecutionException) e).getExitCode() : 1);
+        }
+    }
+
+    private static void dispatchMonitor(CommandContext command) {
+        if (command.helpRequested || !"baseline".equals(command.caseKey)) {
+            PerfBaselineMonitor.printHelp();
+            return;
+        }
+        try {
+            System.exit(PerfBaselineMonitor.run(command.caseArgs));
         } catch (Exception e) {
             System.out.println("\n" + RED + BOLD + " 执行异常: " + RESET + e.getMessage());
         }
@@ -184,6 +233,18 @@ public class Main {
         System.out.printf("  %-20s %s\n", "-url <jdbc_url>", "覆盖数据库连接地址");
         System.out.printf("  %-20s %s\n", "-user <username>", "覆盖数据库用户名");
         System.out.printf("  %-20s %s\n", "-password <pwd>", "覆盖数据库密码");
+        System.out.printf("  %-20s %s\n", "--wait-stable <DIR>", "读取业务结果，性能稳定后自动执行当前故障；超时不注入");
+        System.out.printf("  %-20s %s\n", "--baseline-<option>", "稳定监控参数，如 --baseline-max-wait 180、--baseline-json baseline.json");
+        System.out.printf("  %-20s %s\n", "--recovery-timeout <sec>", "撤销后的最长观测时间，默认 180 秒；--wait-stable 自动启用全程报告");
+        System.out.printf("  %-20s %s\n", "--recovery-ratio <pct>", "恢复至基线的比例，默认 95%");
+        System.out.printf("  %-20s %s\n", "--isolation-max-drop <pct>", "业务影响较小的最大吞吐下降，默认 20%（策略阈值）");
+        System.out.printf("  %-20s %s\n", "--report-dir <path>", "可选新报告目录；默认保存于业务结果旁的 dbchaos-reports/<本次运行>/");
+
+        System.out.println("\n" + BOLD + "测试前置监控" + RESET);
+        System.out.println(DIM + "  等待 BenchmarkSQL 性能稳定并输出测试基准值" + RESET);
+        System.out.println(CYAN + "  java -jar " + jarName + " monitor baseline -result-dir <DIR> [-json <FILE>] [OPTIONS]" + RESET);
+        System.out.println(CYAN + "  java -jar " + jarName + " txn deadlock_storm -duration 30000 --wait-stable <DIR> --baseline-json baseline.json" + RESET);
+        System.out.println(DIM + "  --baseline- 支持: window, stable-windows, tps-cv, p95-swing, min-wait, max-wait, poll, ignore-first, exclude-ttype, json。" + RESET);
 
         System.out.println("\n" + BOLD + "示例" + RESET);
         for (CaseDescriptor descriptor : REGISTRY.getExampleCases(6)) {
@@ -300,6 +361,8 @@ public class Main {
 
         List<String> positional = new ArrayList<String>();
         List<String> caseArgs = new ArrayList<String>();
+        List<String> baselineArgs = new ArrayList<String>();
+        Set<String> baselineOptions = new HashSet<String>();
 
         for (int i = 0; i < args.length; i++) {
             String arg = args[i];
@@ -318,6 +381,43 @@ public class Main {
                 }
                 caseArgs.add(arg);
                 caseArgs.add(args[++i]);
+                continue;
+            }
+
+            if ("--wait-stable".equals(arg) || arg.startsWith("--baseline-")) {
+                if (!baselineOptions.add(arg)) {
+                    throw new IllegalArgumentException("重复参数: " + arg);
+                }
+                if (i + 1 >= args.length || args[i + 1].startsWith("-")) {
+                    throw new IllegalArgumentException(arg + " 缺少参数值");
+                }
+                String value = args[++i];
+                if ("--wait-stable".equals(arg)) {
+                    command.stabilityResultDir = value;
+                } else {
+                    String option = arg.substring("--baseline-".length());
+                    if (!Arrays.asList("window", "stable-windows", "tps-cv", "p95-swing",
+                            "min-wait", "max-wait", "poll", "ignore-first", "exclude-ttype", "json").contains(option)) {
+                        throw new IllegalArgumentException("不支持的稳定监控参数: " + arg + "（自动注入始终在超时后失败）");
+                    }
+                    baselineArgs.add("-" + option);
+                    baselineArgs.add(value);
+                }
+                continue;
+            }
+
+            if (Arrays.asList("--recovery-timeout", "--recovery-ratio", "--isolation-max-drop", "--report-dir").contains(arg)) {
+                if (!baselineOptions.add(arg)) throw new IllegalArgumentException("重复参数: " + arg);
+                if (i + 1 >= args.length || args[i + 1].startsWith("-")) throw new IllegalArgumentException(arg + " 缺少参数值");
+                String value = args[++i];
+                command.resilienceOptions = true;
+                if (arg.equals("--report-dir")) command.resilience.reportDir = java.nio.file.Paths.get(value);
+                else if (arg.equals("--recovery-ratio")) command.resilience.recoveryPct = Double.parseDouble(value);
+                else if (arg.equals("--isolation-max-drop")) command.resilience.isolationDropPct = Double.parseDouble(value);
+                else {
+                    try { command.resilience.recoveryTimeoutMs = Math.multiplyExact(Long.parseLong(value), 1000); }
+                    catch (ArithmeticException e) { throw new IllegalArgumentException("恢复超时过大"); }
+                }
                 continue;
             }
 
@@ -341,6 +441,22 @@ public class Main {
         }
 
         command.caseArgs = caseArgs.toArray(new String[caseArgs.size()]);
+        command.resilience.validate();
+        if (command.resilienceOptions && command.stabilityResultDir == null)
+            throw new IllegalArgumentException("恢复观测及报告选项必须与 --wait-stable <DIR> 一起使用");
+        if (command.stabilityResultDir == null && !baselineArgs.isEmpty()) {
+            throw new IllegalArgumentException("--baseline-* 必须与 --wait-stable <DIR> 一起使用");
+        }
+        if (command.stabilityResultDir != null) {
+            if ("monitor".equals(command.subsystem)) {
+                throw new IllegalArgumentException("--wait-stable 用于故障命令；独立监控请使用 monitor baseline 的参数");
+            }
+            baselineArgs.add("-result-dir");
+            baselineArgs.add(command.stabilityResultDir);
+            baselineArgs.add("-on-timeout");
+            baselineArgs.add("fail");
+            command.baselineArgs = baselineArgs.toArray(new String[baselineArgs.size()]);
+        }
         return command;
     }
 
@@ -472,6 +588,10 @@ public class Main {
         private String subsystem;
         private String caseKey;
         private String[] caseArgs = new String[0];
+        private String stabilityResultDir;
+        private String[] baselineArgs = new String[0];
         private boolean helpRequested;
+        private final ResilienceMonitor.Config resilience = new ResilienceMonitor.Config();
+        private boolean resilienceOptions;
     }
 }

@@ -1,6 +1,7 @@
 package chaos.inject;
 
 import chaos.core.BaseFaultInject;
+import chaos.core.PreflightChecks;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -19,6 +20,11 @@ import java.util.concurrent.atomic.AtomicInteger;
  * 主目标不是单纯制造锁等待，而是放大死锁检测器和锁管理器的负载。
  */
 public class DeadlockStormInject extends BaseFaultInject {
+    @Override
+    public void reportTest() {
+        printTestReport();
+    }
+
     private static final String RESET  = "\u001B[0m";
     private static final String CYAN   = "\u001B[36m";
     private static final String YELLOW = "\u001B[33m";
@@ -49,11 +55,37 @@ public class DeadlockStormInject extends BaseFaultInject {
     }
 
     @Override
+    protected void preflight(String[] args) throws Exception {
+        long duration = preflightLong(args, "-duration", 0);
+        int anchors = preflightInt(args, "-anchors", 2);
+        int anchorRows = preflightInt(args, "-anchor-rows", 20);
+        int waiters = preflightInt(args, "-waiters", 16);
+        int hotRows = preflightInt(args, "-hot-rows", 64);
+        preflightInt(args, "-step-delay", 50);
+        int timeout = preflightInt(args, "-statement-timeout", 5);
+        PreflightChecks.require(timeout <= Integer.MAX_VALUE / 1000, "-statement-timeout 过大");
+        PreflightChecks.require(waiters >= 2, "-waiters 至少为 2");
+        PreflightChecks.require(hotRows >= 4 && hotRows > (long) anchors * anchorRows,
+                "-hot-rows 必须至少为 4 且大于 anchors * anchor-rows");
+        String table = preflightArg(args, "-table");
+        if (table == null) table = "bmsql_stock";
+        try (PreflightChecks checks = new PreflightChecks(getConnection(), getStandardDbType())) {
+            checks.transactionTimeouts(duration);
+            checks.deadlockTimeout(timeout);
+            checks.connections((long) anchors + waiters);
+            checks.tableRows(table, hotRows);
+        }
+        preflightProbes().statementTimeout(timeout);
+    }
+
+    @Override
     public void execute(String[] args) throws Exception {
         if (args.length == 0 || hasArg(args, "-h") || hasArg(args, "--help")) {
             printHelp();
             return;
         }
+
+        runPreflight(args);
 
         String tableName = getArg(args, "-table");
         if (tableName == null) {
@@ -72,7 +104,7 @@ public class DeadlockStormInject extends BaseFaultInject {
         int anchors = parseIntArg(args, "-anchors", 2);
         int anchorRows = parseIntArg(args, "-anchor-rows", 20);
         int waiters = parseIntArg(args, "-waiters", 16);
-        int hotRows = parseIntArg(args, "-hot-rows", 32);
+        int hotRows = parseIntArg(args, "-hot-rows", 64);
         int stepDelayMs = parseIntArg(args, "-step-delay", 50);
         int statementTimeoutSec = parseIntArg(args, "-statement-timeout", 5);
 
@@ -139,11 +171,11 @@ public class DeadlockStormInject extends BaseFaultInject {
         System.out.printf("  %-18s %s\n", "-anchors", "选填。长事务锚点数 (默认 2)");
         System.out.printf("  %-18s %s\n", "-anchor-rows", "选填。每个锚点锁定的行数 (默认 20)");
         System.out.printf("  %-18s %s\n", "-waiters", "选填。交叉等待线程数 (默认 16)");
-        System.out.printf("  %-18s %s\n", "-hot-rows", "选填。用于制造交叉冲突的热点行数 (默认 32)");
+        System.out.printf("  %-18s %s\n", "-hot-rows", "选填。用于制造交叉冲突的热点行数 (默认 64)");
         System.out.printf("  %-18s %s\n", "-step-delay", "选填。两次取锁之间的延迟 ms (默认 50)");
         System.out.printf("  %-18s %s\n", "-statement-timeout", "选填。语句超时秒数 (默认 5)");
         System.out.println("\n" + BOLD + "示例:" + RESET);
-        System.out.println(CYAN + "  java -jar DBChaos-0.0.1.jar --db opengauss txn deadlock_storm -duration 60000 -table bmsql_stock -anchors 2 -anchor-rows 20 -waiters 16 -hot-rows 32" + RESET);
+        System.out.println(CYAN + "  java -jar DBChaos-0.0.1.jar --db opengauss txn deadlock_storm -duration 60000 -table bmsql_stock -anchors 2 -anchor-rows 20 -waiters 16 -hot-rows 64" + RESET);
     }
 
     private void openAnchorTransaction(String tableName, int anchorId, int rowCount) {
@@ -158,6 +190,7 @@ public class DeadlockStormInject extends BaseFaultInject {
             lockRows(conn, tableName, baseOffset, rowCount);
             System.out.println("[Anchor-" + anchorId + "] 已锁定 " + rowCount + " 行，事务保持中...");
         } catch (SQLException e) {
+            recordTestError(e);
             System.err.println("[Anchor-" + anchorId + "] 锚点事务建立失败: " + e.getMessage());
         }
     }
@@ -188,6 +221,7 @@ public class DeadlockStormInject extends BaseFaultInject {
                 conn.rollback();
                 successfulLoops.incrementAndGet();
             } catch (SQLException e) {
+                recordTestError(e);
                 classifyException(e);
             }
         }
@@ -250,7 +284,7 @@ public class DeadlockStormInject extends BaseFaultInject {
                         conn.rollback();
                         conn.close();
                     }
-                } catch (SQLException ignored) {}
+                } catch (SQLException ignored) { recordTestError(ignored); }
             }
             anchorConnections.clear();
         }
