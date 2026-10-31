@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Two real CLI experiments: lock the business hotspot, then an unrelated control table."""
 import hashlib
+from datetime import datetime, timezone, timedelta
 import json
 import os
 from pathlib import Path
@@ -10,7 +11,8 @@ import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
-OUT = ROOT / 'docs/testing/reports/resilience-opengauss-20261019' / time.strftime('%H%M%S')
+stamp = datetime.now(timezone(timedelta(hours=8)))
+OUT = ROOT / 'docs/testing/reports' / ('resilience-opengauss-' + stamp.strftime('%Y%m%d')) / stamp.strftime('%H%M%S')
 OUT.mkdir(parents=True)
 NAME = 'dbchaos-resilience-' + secrets.token_hex(4)
 IMAGE = 'opengauss/opengauss:7.0.0-RC2.B015'
@@ -132,8 +134,16 @@ try:
                     failures.append('built-in database health evidence missing')
                 if label == 'business_lock' and (metrics['max_drop_pct'] < 90 or metrics['Pd'] != 0):
                     failures.append('business hotspot not degraded as expected')
+                if label == 'business_lock' and metrics['isolation_grade'] != 'poor':
+                    failures.append('business hotspot impact was not graded poor')
+                if label == 'business_lock' and metrics['business_availability'] not in ['intermittent', 'unavailable']:
+                    failures.append('business interruption was hidden by the healthy SELECT 1 probe')
                 if label == 'unrelated_lock' and metrics['max_drop_pct'] > 20:
                     failures.append('unrelated control showed excessive impact')
+                if label == 'unrelated_lock' and metrics['business_availability'] != 'available':
+                    failures.append('unrelated control business not assessed available')
+                if metrics['baseline_p95_ms'] is None or metrics['recovery_p95_ms'] is None:
+                    failures.append('missing business response latency')
                 remaining = sql("SELECT count(*) FROM pg_stat_activity WHERE application_name='resilience_fault';")
                 if remaining != '0':
                     failures.append('injector/probe connections remain: ' + remaining)

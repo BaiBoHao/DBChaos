@@ -238,6 +238,7 @@ public abstract class BaseFaultInject {
             System.out.println("[Preflight] " + faultType + " 预检通过");
             markFaultStarted();
         } catch (Exception e) {
+            failurePhase = "预检";
             throw new IllegalStateException("[Preflight] " + faultType
                     + " 预检失败，退出测试: " + e.getMessage(), e);
         }
@@ -305,6 +306,7 @@ public abstract class BaseFaultInject {
         if (resilienceMonitor != null) resilienceMonitor.faultStarted();
     }
     private volatile boolean executionFailed;
+    private String failurePhase;
     private final java.util.concurrent.atomic.AtomicLong observedErrors = new java.util.concurrent.atomic.AtomicLong();
     private final java.util.Set<String> errorSamples = new java.util.LinkedHashSet<>();
     private final java.util.Set<String> checkHints = new java.util.LinkedHashSet<>();
@@ -317,16 +319,24 @@ public abstract class BaseFaultInject {
         }
         reportStarted = System.nanoTime();
         executionFailed = false;
+        failurePhase = null;
         observedErrors.set(0);
         synchronized (this) { errorSamples.clear(); checkHints.clear(); }
         try {
             execute(args);
         } catch (Exception | OutOfMemoryError e) {
             executionFailed = true;
+            if (failurePhase == null) failurePhase = "故障执行或清理";
             recordTestError(e);
             throw e;
         } finally {
-            if (resilienceMonitor != null) resilienceMonitor.finish(executionFailed);
+            if (resilienceMonitor != null) {
+                synchronized (this) {
+                    resilienceMonitor.executionDetails(failurePhase, new java.util.ArrayList<String>(errorSamples),
+                            new java.util.ArrayList<String>(checkHints));
+                }
+                resilienceMonitor.finish(executionFailed);
+            }
             reportTest();
         }
     }
@@ -368,15 +378,17 @@ public abstract class BaseFaultInject {
     /** 通用报告不把 SQL 错误直接解释为环境配置问题或韧性结论。 */
     protected final synchronized void printTestReport() {
         long elapsed = reportStarted == 0 ? 0 : (System.nanoTime() - reportStarted) / 1000000;
-        System.out.println("\n[TestReport] 故障=" + faultType + " 数据库=" + dbType);
-        System.out.println("[TestReport] 执行状态=" + (executionFailed ? "执行失败" : observedErrors.get() > 0 ? "执行结束，存在错误记录" : "执行结束")
-                + " 耗时=" + elapsed + "ms 异常记录数=" + observedErrors.get());
-        for (String sample : errorSamples) System.out.println("[TestReport] 异常样本: " + sample);
-        for (String hint : checkHints) System.out.println("[TestReport] 检查建议（需结合日志确认原因）: " + hint);
+        StringBuilder report = new StringBuilder("\n[TestReport] 故障=" + faultType + " 数据库=" + dbType + "\n");
+        report.append("[TestReport] 执行状态=").append(executionFailed ? "执行失败" : observedErrors.get() > 0 ? "执行结束，存在错误记录" : "执行结束")
+                .append(" 耗时=").append(elapsed).append("ms 异常记录数=").append(observedErrors.get()).append('\n');
+        if (failurePhase != null) report.append("[TestReport] 失败阶段：").append(failurePhase).append('\n');
+        for (String sample : errorSamples) report.append("[TestReport] 异常样本: ").append(sample).append('\n');
+        for (String hint : checkHints) report.append("[TestReport] 检查建议（需结合日志确认原因）: ").append(hint).append('\n');
         if (executionFailed && checkHints.isEmpty())
-            System.out.println("[TestReport] 请根据异常检查故障参数、数据库配置、权限、目标表及服务器日志。");
-        System.out.println("[TestReport] 执行结束不代表故障生效；请结合注入计数、业务影响和恢复情况评价韧性。");
-        if (resilienceMonitor != null) resilienceMonitor.report();
+            report.append("[TestReport] 请根据异常检查故障参数、数据库配置、权限、目标表及服务器日志。\n");
+        report.append("[TestReport] 执行结束不代表故障生效；请结合注入计数、业务影响和恢复情况评价韧性。\n");
+        System.out.print(report);
+        if (resilienceMonitor != null) resilienceMonitor.report(report.toString());
         else System.out.println("[Resilience] 未提供业务结果源，六项业务韧性指标不可用；通过 --wait-stable <结果目录> 启用全程观测。");
     }
 }

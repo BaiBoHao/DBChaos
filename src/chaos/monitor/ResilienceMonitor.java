@@ -18,11 +18,23 @@ public final class ResilienceMonitor {
     public static final class Config {
         public long recoveryTimeoutMs = 180000;
         public double recoveryPct = 95, isolationDropPct = 20;
+        public double isolationLatencyMultiplier = 2, recoveryLatencyMultiplier = 1.2, maxErrorIncreasePct = 1;
         public Path reportDir;
         public void validate() {
             if (recoveryTimeoutMs <= 0 || !Double.isFinite(recoveryPct) || recoveryPct <= 0 || recoveryPct > 100
-                    || !Double.isFinite(isolationDropPct) || isolationDropPct < 0 || isolationDropPct > 100)
+                    || !Double.isFinite(isolationDropPct) || isolationDropPct < 0 || isolationDropPct > 100
+                    || !Double.isFinite(isolationLatencyMultiplier) || isolationLatencyMultiplier < 1
+                    || !Double.isFinite(recoveryLatencyMultiplier) || recoveryLatencyMultiplier < 1
+                    || !Double.isFinite(maxErrorIncreasePct) || maxErrorIncreasePct < 0 || maxErrorIncreasePct > 100)
                 throw new IllegalArgumentException("恢复超时必须为正数；恢复比例须在 (0,100]，隔离下降阈值须在 [0,100]");
+        }
+    }
+
+    private static final class Bucket {
+        long ok, errors;
+        final LatencyHistogram latency = new LatencyHistogram();
+        void record(boolean success, double milliseconds) {
+            if (success) { ok++; latency.add(milliseconds); } else errors++;
         }
     }
 
@@ -32,8 +44,8 @@ public final class ResilienceMonitor {
     private final RandomAccessFile input;
     private final Object fileKey;
     private final List<Sample> baselineSamples = new ArrayList<Sample>();
-    private final Map<Long, long[]> fault = new TreeMap<Long, long[]>(), recovery = new TreeMap<Long, long[]>();
-    private final Map<Long, Long> baselineErrors = new HashMap<Long, Long>();
+    private final Map<Long, Bucket> fault = new TreeMap<Long, Bucket>(), recovery = new TreeMap<Long, Bucket>();
+    private final Map<Long, Bucket> baselineStats = new HashMap<Long, Bucket>();
     private final Map<String, Integer> columns = new HashMap<String, Integer>();
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "business-throughput-observer"); t.setDaemon(true); return t;
@@ -43,6 +55,8 @@ public final class ResilienceMonitor {
     private String runId, alignment, monitoringError;
     private boolean exactAlignment;
     private boolean headerSeen, finished;
+    private String failurePhase;
+    private List<String> failureSamples = Collections.emptyList(), checkHints = Collections.emptyList();
     private ResilienceAnalysis.Result result;
     private List<Sample> finalSamples;
     private Callable<Connection> database;
@@ -55,6 +69,10 @@ public final class ResilienceMonitor {
     });
 
     public synchronized void observeDatabase(Callable<Connection> factory) { database = factory; }
+    public synchronized void executionDetails(String phase, List<String> samples, List<String> hints) {
+        failurePhase = phase;
+        failureSamples = new ArrayList<String>(samples); checkHints = new ArrayList<String>(hints);
+    }
 
     public ResilienceMonitor(PerfBaselineMonitor.Baseline baseline, Config config) throws IOException {
         config.validate(); this.baseline = baseline; this.config = config;
@@ -67,10 +85,11 @@ public final class ResilienceMonitor {
         fileKey = Files.readAttributes(baseline.file, BasicFileAttributes.class).fileKey();
         input = new RandomAccessFile(baseline.file.toFile(), "r");
         try {
+            for (long[] w : baseline.windows) baselineStats.put(w[0], new Bucket());
             readAvailable();
             epoch = workloadEpoch();
             for (long[] w : baseline.windows) baselineSamples.add(new Sample("baseline", epoch + w[0],
-                    epoch + w[0] + baseline.windowMs, w[1], baselineErrors.getOrDefault(w[0], 0L), true, true));
+                    epoch + w[0] + baseline.windowMs, w[1], baselineStats.get(w[0]).errors, true, true, baselineStats.get(w[0]).latency));
         } catch (IOException | RuntimeException e) {
             input.close(); scheduler.shutdownNow(); throw e;
         }
@@ -121,9 +140,10 @@ public final class ResilienceMonitor {
                 long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(config.recoveryTimeoutMs);
                 while (true) {
                     pollSafely();
-                    ResilienceAnalysis.Result progress = ResilienceAnalysis.analyze(baseline.p0, started, stopped,
+                    ResilienceAnalysis.Result progress = ResilienceAnalysis.analyzeService(baseline.p0, started, stopped,
                             samples(System.currentTimeMillis()), baseline.stableWindows, baseline.cvLimit,
-                            config.recoveryPct, config.isolationDropPct, failed, analysisProblem());
+                            config.recoveryPct, config.isolationDropPct, failed, analysisProblem(),
+                            config.isolationLatencyMultiplier, config.recoveryLatencyMultiplier, config.maxErrorIncreasePct);
                     // One extra window allows buffered/late CSV writes to arrive before confirming recovery.
                     if (progress.recovered && System.currentTimeMillis() >= progress.tr + baseline.windowMs) break;
                     if (monitoringError != null || System.nanoTime() >= deadline) break;
@@ -135,10 +155,9 @@ public final class ResilienceMonitor {
         } finally {
             synchronized (this) {
                 finished = true; finalSamples = samples(System.currentTimeMillis());
-                result = ResilienceAnalysis.analyze(baseline.p0, started, stopped, finalSamples,
-                        baseline.stableWindows, baseline.cvLimit, config.recoveryPct, config.isolationDropPct, failed, analysisProblem());
-                if (!failed && Boolean.TRUE.equals(healthyFaultWindows()) && (result.pd == null || result.pd == 0))
-                    result.continuity = "故障期间每个完整窗口至少一次探针成功响应 SELECT 1；业务零吞吐或遥测不足不等同于数据库进程宕机";
+                result = ResilienceAnalysis.analyzeService(baseline.p0, started, stopped, finalSamples,
+                        baseline.stableWindows, baseline.cvLimit, config.recoveryPct, config.isolationDropPct, failed, analysisProblem(),
+                            config.isolationLatencyMultiplier, config.recoveryLatencyMultiplier, config.maxErrorIncreasePct);
                 try { input.close(); persistSeries(finalSamples); persistHealth(); persistJson(failed); }
                 catch (IOException e) { monitoringError = "报告保存失败: " + e.getMessage(); }
             }
@@ -146,6 +165,9 @@ public final class ResilienceMonitor {
     }
 
     public synchronized void report() {
+        report("");
+    }
+    public synchronized void report(String executionReport) {
         if (result == null) { System.out.println("[Resilience] 观测未完成，无法报告韧性指标"); return; }
         StringBuilder text = new StringBuilder();
         text.append("[Resilience] P0=").append(number(result.p0)).append(" TPS, t0=").append(time(result.t0))
@@ -155,25 +177,47 @@ public final class ResilienceMonitor {
                 .append(percent(result.meanDropPct)).append("，恢复至基线的=").append(percent(result.restoredPct))
                 .append("，已弥补吞吐损失=").append(percent(result.regainedLossPct)).append('\n');
         if (result.tr != null) text.append("[Resilience] 撤销后恢复耗时=").append(result.tr - result.withdrawalMs).append("ms\n");
-        text.append("[Resilience] 隔离影响: ").append(result.isolation).append('\n');
-        text.append("[Resilience] 持续服务: ").append(result.continuity).append('\n');
-        text.append("[Resilience] 故障阶段完整窗口内业务错误率: ").append(percent(result.faultErrorPct)).append('\n');
-        text.append("[Resilience] 性能恢复: ").append(result.recovery).append('\n');
+        text.append("[Resilience] 故障隔离效果: ").append(result.isolation).append('\n');
+        text.append("[Resilience] 业务服务可用性: ").append(result.continuity).append('\n');
+        text.append("[Resilience] 业务错误率：基线=").append(percent(result.baselineErrorPct))
+                .append("，故障=").append(percent(result.faultErrorPct)).append("，恢复=").append(percent(result.recoveryErrorPct)).append('\n');
+        text.append("[Resilience] 成功业务响应 P95：基线=").append(number(result.baselineP95Ms))
+                .append("ms，故障期间=").append(number(result.faultP95Ms)).append("ms，恢复末期=")
+                .append(number(result.recoveryP95Ms)).append("ms；故障最差窗口约为基线的 ")
+                .append(number(result.latencyMultiplier)).append(" 倍。\n");
+        text.append("[Resilience] 撤销后恢复情况: ").append(result.recovery).append('\n');
         text.append("[Resilience] 判据: 窗口=").append(baseline.windowMs / 1000.0).append("s，连续=")
                 .append(baseline.stableWindows).append("，CV<=").append(baseline.cvLimit)
                 .append("%，恢复>=P0的").append(config.recoveryPct).append("%，隔离最大下降<=")
                 .append(config.isolationDropPct).append("%；td/tr 为窗口结束时间。\n");
-        text.append("[Resilience] 时间对齐: ").append(alignment).append("；未知项为 N/A；仅完整窗口参与判定。\n");
-        if (started == null) text.append("[Resilience] 故障未开始（可能预检失败），不计算故障与恢复指标。\n");
+        text.append("[Resilience] 服务质量阈值：隔离 P95 <= 基线的 ").append(config.isolationLatencyMultiplier)
+                .append(" 倍，恢复 P95 <= 基线的 ").append(config.recoveryLatencyMultiplier)
+                .append(" 倍（均加 1ms 计时容差）；业务错误率最多比基线增加 ").append(config.maxErrorIncreasePct).append(" 个百分点。\n");
+        text.append("[Resilience] 时间对齐: ").append(alignment).append("；仅完整窗口参与判定。\n");
+        for (Map.Entry<String, String> entry : unavailableReasons().entrySet())
+            text.append("[Resilience] ").append(entry.getKey()).append("未获取/未确认的原因：").append(entry.getValue()).append('\n');
+        if (failurePhase != null) {
+            text.append("[Resilience] 失败阶段：").append(failurePhase).append('\n');
+            for (String cause : failureSamples) text.append("[Resilience] 具体失败原因：").append(cause).append('\n');
+            for (String hint : checkHints) text.append("[Resilience] 检查建议：").append(hint).append('\n');
+        }
         if (started != null && stopped - started < baseline.windowMs)
             text.append("[Resilience] 故障不足一个统计窗口，无法分析极值和恢复；请缩小 --baseline-window 或延长故障时长。\n");
         if (!result.evidenceComplete) text.append("[Resilience] 注入或遥测证据不足，不能作出隔离、持续服务及恢复的肯定结论。\n");
         if (monitoringError != null) text.append("[Resilience] 观测问题: ").append(monitoringError).append('\n');
         text.append("[Resilience] 撤销时间是注入器执行及清理返回时刻；未独立验证残留对象/锁是否清除。\n");
-        text.append("[Resilience] 数据库探针完整故障窗口均响应: ").append(healthyFaultWindows()).append("（探针失败也可能是账号/连接限额，不等同于进程崩溃）\n");
+        Boolean responsive = healthyFaultWindows();
+        text.append("[Resilience] 数据库探针: ").append(responsive == null ? "未评估（故障未开始或没有完整故障窗口）"
+                : responsive ? "每个完整故障窗口均可响应 SELECT 1" : "部分窗口未确认响应")
+                .append("；这与真实业务是否可用分开评价，探针失败也不等同于进程崩溃。\n");
         text.append("[Resilience] 数据文件: ").append(output).append("/{throughput.csv,database-health.csv,resilience.json,report.txt}\n");
-        System.out.print(text);
-        try { Files.write(output.resolve("report.txt"), text.toString().getBytes(StandardCharsets.UTF_8)); }
+        String human = text.toString().replace("N/A", "未获取");
+        System.out.print(human);
+        try {
+            Files.write(output.resolve("report.txt"), (executionReport + human).getBytes(StandardCharsets.UTF_8));
+            System.out.print(ResilienceReport.write(output));
+            System.out.println("[Resilience] 可读报告: " + output.resolve("report.txt") + "；汇总表: " + output.resolve("summary.csv"));
+        }
         catch (IOException e) { System.err.println("[Resilience] 无法保存文本报告: " + e.getMessage()); }
     }
 
@@ -184,12 +228,12 @@ public final class ResilienceMonitor {
         if (stopped != null) addSamples(all, "recovery", stopped, now, recovery);
         return all;
     }
-    private void addSamples(List<Sample> all, String phase, long start, long end, Map<Long, long[]> buckets) {
+    private void addSamples(List<Sample> all, String phase, long start, long end, Map<Long, Bucket> buckets) {
         for (long time = start; time < end; time += baseline.windowMs) {
             long finish = Math.min(time + baseline.windowMs, end);
-            long[] counts = buckets.get(time);
-            all.add(new Sample(phase, time, finish, counts == null ? 0 : counts[0], counts == null ? 0 : counts[1],
-                    finish - time == baseline.windowMs, epoch + latestElapsed >= finish));
+            Bucket counts = buckets.get(time);
+            all.add(new Sample(phase, time, finish, counts == null ? 0 : counts.ok, counts == null ? 0 : counts.errors,
+                    finish - time == baseline.windowMs, epoch + latestElapsed >= finish, counts == null ? null : counts.latency));
         }
     }
     private void readAvailable() throws IOException {
@@ -231,8 +275,8 @@ public final class ResilienceMonitor {
                 String error = field(fields, "error");
                 boolean success = error.isEmpty() || error.equals("0");
                 if (started == null) {
-                    if (!success) for (long[] w : baseline.windows) if (elapsed >= w[0] && elapsed < w[0] + baseline.windowMs)
-                        baselineErrors.merge(w[0], 1L, Long::sum);
+                    for (long[] w : baseline.windows) if (elapsed >= w[0] && elapsed < w[0] + baseline.windowMs)
+                        baselineStats.get(w[0]).record(success, latency);
                     continue;
                 }
                 long eventTime = Math.addExact(epoch, elapsed);
@@ -240,10 +284,10 @@ public final class ResilienceMonitor {
                     throw new IOException("业务时间戳超前，检查 runInfo.sessionStart/时区及系统时钟");
                 if (eventTime < started) continue;
                 long origin = stopped == null || eventTime < stopped ? started : stopped;
-                Map<Long, long[]> target = stopped == null || eventTime < stopped ? fault : recovery;
+                Map<Long, Bucket> target = stopped == null || eventTime < stopped ? fault : recovery;
                 long bucket = origin + (eventTime - origin) / baseline.windowMs * baseline.windowMs;
-                long[] counts = target.computeIfAbsent(bucket, key -> new long[2]);
-                counts[success ? 0 : 1]++;
+                Bucket counts = target.computeIfAbsent(bucket, key -> new Bucket());
+                counts.record(success, latency);
             } catch (IllegalArgumentException | ArithmeticException e) {
                 throw new IOException("业务结果存在非法完整记录，不能将其当作零吞吐", e);
             }
@@ -289,10 +333,11 @@ public final class ResilienceMonitor {
     }
 
     private void persistSeries(List<Sample> samples) throws IOException {
-        StringBuilder csv = new StringBuilder("phase,start_epoch_ms,end_epoch_ms,relative_start_ms,successes,errors,successful_tps,complete,source_covered\n");
+        StringBuilder csv = new StringBuilder("phase,start_epoch_ms,end_epoch_ms,relative_start_ms,successes,errors,successful_tps,complete,source_covered,successful_p95_ms\n");
         for (Sample s : samples) csv.append(s.phase).append(',').append(s.startMs).append(',').append(s.endMs).append(',')
                 .append(started == null ? "" : s.startMs - started).append(',').append(s.successes).append(',').append(s.errors)
-                .append(',').append(number(s.tps())).append(',').append(s.complete).append(',').append(s.covered).append('\n');
+                .append(',').append(number(s.tps())).append(',').append(s.complete).append(',').append(s.covered).append(',')
+                .append(s.successfulLatency == null ? "" : number(s.successfulLatency.p95()).replace("N/A", "")).append('\n');
         atomicWrite(output.resolve("throughput.csv"), csv.toString());
     }
     private void persistJson(boolean failed) throws IOException {
@@ -303,19 +348,61 @@ public final class ResilienceMonitor {
                 + ", \"mean_drop_pct\": " + number(r.meanDropPct) + ", \"restored_baseline_pct\": " + number(r.restoredPct)
                 + ", \"regained_loss_pct\": " + number(r.regainedLossPct) + ",\n  \"recovered\": " + r.recovered
                 + ", \"fault_error_pct\": " + number(r.faultErrorPct)
+                + ", \"baseline_error_pct\": " + number(r.baselineErrorPct) + ", \"recovery_error_pct\": " + number(r.recoveryErrorPct)
+                + ",\n  \"baseline_p95_ms\": " + number(r.baselineP95Ms) + ", \"fault_p95_ms\": " + number(r.faultP95Ms)
+                + ", \"worst_fault_window_p95_ms\": " + number(r.worstFaultP95Ms) + ", \"recovery_p95_ms\": " + number(r.recoveryP95Ms)
+                + ", \"fault_p95_multiplier\": " + number(r.latencyMultiplier) + ", \"throughput_recovered\": " + r.throughputRecovered
                 + ", \"recovery_stable\": " + r.recoveryStable + ", \"evidence_complete\": " + r.evidenceComplete
                 + ", \"execution_failed\": " + failed + ",\n  \"window_ms\": " + baseline.windowMs
                 + ", \"database_probe_fault_windows_all_responsive\": " + healthyFaultWindows()
                 + ", \"stable_windows\": " + baseline.stableWindows + ", \"cv_limit_pct\": " + baseline.cvLimit
                 + ", \"recovery_target_pct\": " + config.recoveryPct + ", \"isolation_max_drop_pct\": " + config.isolationDropPct
                 + ",\n  \"isolation\": " + quote(r.isolation) + ",\n  \"continuity\": " + quote(r.continuity)
+                + ", \"isolation_grade\": " + quote(r.isolationGrade) + ", \"business_availability\": " + quote(r.availability)
+                + ", \"recovery_status\": " + quote(r.recoveryStatus)
+                + ",\n  \"isolation_latency_multiplier_limit\": " + config.isolationLatencyMultiplier
+                + ", \"recovery_latency_multiplier_limit\": " + config.recoveryLatencyMultiplier
+                + ", \"max_error_increase_percentage_points\": " + config.maxErrorIncreasePct
                 + ",\n  \"recovery\": " + quote(r.recovery) + ",\n  \"time_alignment\": " + quote(alignment)
                 + ", \"time_alignment_exact\": " + exactAlignment
-                + ",\n  \"monitoring_error\": " + quote(monitoringError) + "\n}\n";
+                + ",\n  \"monitoring_error\": " + quote(monitoringError)
+                + ", \"failure_phase\": " + quote(failurePhase) + ",\n  \"failure_samples\": " + strings(failureSamples)
+                + ", \"check_hints\": " + strings(checkHints) + ",\n  \"unavailable_reasons\": " + reasonsJson() + "\n}\n";
         atomicWrite(output.resolve("resilience.json"), json.replace(": N/A", ": null"));
     }
     private String analysisProblem() {
         return monitoringError != null ? monitoringError : exactAlignment ? null : "缺少 runInfo.sessionStart，业务与故障时间只能估计对齐";
+    }
+    private Map<String, String> unavailableReasons() {
+        Map<String, String> reasons = new LinkedHashMap<String, String>();
+        String issue = failurePhase != null ? failurePhase + "失败：" + (failureSamples.isEmpty() ? "详见执行日志" : failureSamples.get(0))
+                : started == null ? "注入器没有开始实际故障，不能将普通运行作为故障实验"
+                : analysisProblem() != null ? analysisProblem()
+                : stopped - started < baseline.windowMs ? "故障持续时间短于一个完整统计窗口"
+                : "缺少完整且有时间覆盖的业务窗口；请检查业务压测和结果文件是否持续更新";
+        if (result.t0 == null) reasons.put("t0", issue);
+        if (result.pd == null) { reasons.put("Pd", issue); reasons.put("td", issue); }
+        if (result.pr == null) reasons.put("Pr", failurePhase != null || started == null ? issue : "没有完整且被业务记录覆盖的恢复窗口，或已因实验失败跳过恢复观测");
+        if (result.tr == null) reasons.put("tr", !result.evidenceComplete ? issue
+                : result.recovery + "；没有确认恢复时刻，不能用观测结束时间代替 tr");
+        if (result.regainedLossPct == null && result.pd != null && result.pd >= result.p0)
+            reasons.put("已弥补吞吐损失比例", "不适用：本次未出现吞吐损失，P0-Pd 不大于零");
+        if (result.baselineP95Ms == null) reasons.put("基线P95", "基线没有可用的成功业务响应延迟记录");
+        if (result.faultP95Ms == null) reasons.put("故障P95", started == null || failurePhase != null ? issue
+                : "完整故障窗口没有成功业务响应或缺少延迟记录；请求全部失败时，成功响应P95不适用");
+        if (result.recoveryP95Ms == null) reasons.put("恢复P95", started == null || failurePhase != null ? issue
+                : "没有完整且已覆盖的恢复窗口，或恢复窗口没有成功业务响应");
+        return reasons;
+    }
+    private String reasonsJson() {
+        List<String> values = new ArrayList<String>();
+        for (Map.Entry<String, String> e : unavailableReasons().entrySet()) values.add(quote(e.getKey()) + ": " + quote(e.getValue()));
+        return "{" + String.join(", ", values) + "}";
+    }
+    private static String strings(List<String> strings) {
+        List<String> escaped = new ArrayList<String>();
+        for (String s : strings) escaped.add(quote(s));
+        return "[" + String.join(", ", escaped) + "]";
     }
     private Boolean healthyFaultWindows() {
         if (started == null || stopped == null || database == null) return null;

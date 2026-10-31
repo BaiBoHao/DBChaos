@@ -41,7 +41,38 @@ public class ResilienceRegression {
         check(!ResilienceAnalysis.analyze(0,1000L,4000L,high,3,5,95,20,false,null).evidenceComplete,"zero baseline passed");
         List<Sample> errors=Arrays.asList(new Sample("fault",1000,2000,100,100,true,true));
         r=analyze(errors,false,null); near(r.faultErrorPct,50); check(r.isolation.contains("业务错误"),"high business error rate hidden");
+        serviceChecks();
         System.out.println("Numeric resilience checks passed: "+checks);
+    }
+    static Sample serviceSample(String phase, long start, long ok, long errors, double latency) {
+        LatencyHistogram h = new LatencyHistogram();
+        for (long i=0; i<ok; i++) h.add(latency);
+        return new Sample(phase,start,start+1000,ok,errors,true,true,h);
+    }
+    static Result service(List<Sample> rows) {
+        return ResilienceAnalysis.analyzeService(100,1000L,4000L,rows,3,5,95,20,false,null,2,1.2,1);
+    }
+    static void serviceChecks() {
+        List<Sample> rows=new ArrayList<Sample>();
+        rows.add(serviceSample("baseline",0,100,0,1));
+        for(int i=1;i<4;i++) rows.add(serviceSample("fault",i*1000,100,0,10));
+        for(int i=4;i<7;i++) rows.add(serviceSample("recovery",i*1000,100,0,10));
+        Result r=service(rows);
+        check(r.availability.equals("available_slow"),"slow successful service was called unavailable");
+        check(r.isolationGrade.equals("poor"),"10x latency was called good isolation");
+        check(r.throughputRecovered && !r.recovered && r.tr==null && r.recoveryStatus.equals("quality_not_recovered"),"TPS-only rebound passed service recovery");
+        check(r.recovery.contains("P95") && r.recovery.contains("基线") && r.recovery.contains("10.00ms"),"recovery report hid the concrete latency reason");
+        check(r.baselineP95Ms>=1 && r.baselineP95Ms<1.03 && r.faultP95Ms>=10 && r.faultP95Ms<10.12,"latency histogram inaccurate");
+        for(int i=4;i<7;i++) rows.set(i,serviceSample("recovery",i*1000,97,0,1));
+        r=service(rows); check(r.recovered && r.tr==7000 && r.recoveryStatus.equals("recovered"),"service quality restoration missed");
+        for(int i=1;i<4;i++) rows.set(i,serviceSample("fault",i*1000,100,50,1));
+        r=service(rows); check(r.availability.equals("degraded") && r.isolationGrade.equals("poor"),"business failures hidden by throughput");
+        for(int i=1;i<4;i++) rows.set(i,serviceSample("fault",i*1000,0,5,1));
+        r=service(rows); check(r.availability.equals("unavailable") && r.continuity.contains("没有成功请求"),"business failure not reported");
+        rows.set(1,serviceSample("fault",1000,5,0,500));
+        r=service(rows); check(r.availability.equals("intermittent"),"slow intermittent successful service was called totally unavailable");
+        for(int i=1;i<4;i++) rows.set(i,serviceSample("fault",i*1000,99,0,1));
+        r=service(rows); check(r.isolationGrade.equals("good") && r.availability.equals("available"),"unaffected business not classified good");
     }
     static void live(String mode, Path output) throws Exception {
         Files.createDirectories(output);
@@ -60,7 +91,8 @@ public class ResilienceRegression {
                     if(value!=3 && (value!=1 && value!=2 || tick%2==0)) {
                         long elapsed=System.currentTimeMillis()-epoch;
                         // Excluded background rows and actual failed records must not inflate successful TPS.
-                        String line="1,"+elapsed+",1,1,NEW_ORDER,0,0,0\n"
+                        int latency = value == 0 ? 1 : mode.equals("slow_available") || mode.equals("slow_recovery") ? 10 : 1;
+                        String line="1,"+elapsed+","+latency+","+latency+",NEW_ORDER,0,0,0\n"
                                 +"1,"+elapsed+",1,1,DELIVERY_BG,0,0,0\n";
                         Files.write(feed,line.getBytes(StandardCharsets.UTF_8),StandardOpenOption.APPEND);
                     }
@@ -85,6 +117,7 @@ public class ResilienceRegression {
                 public void reportTest(){printTestReport();}
                 protected void preflight(String[] args) {
                     if(mode.equals("preflight_failure")) throw new IllegalArgumentException("controlled prerequisite failure");
+                    if(mode.equals("invalid_parameter")) preflightInt(new String[]{"-threads", "0"}, "-threads", 1);
                 }
                 public void execute(String[] args) throws Exception {
                     if(Arrays.asList("partial_line", "malformed", "mixed_runs").contains(mode)) {
@@ -109,13 +142,13 @@ public class ResilienceRegression {
                         Files.write(feed,"run,elapsed,latency,dblatency,ttype,rbk,dskipped,error\n".getBytes(StandardCharsets.UTF_8));
                         phase.set(3); Thread.sleep(100); return;
                     }
-                    phase.set(1); Thread.sleep(2200);
-                    phase.set(mode.equals("stale")?3:mode.equals("degraded")?2:0);
+                    phase.set(mode.equals("slow_available") || mode.equals("slow_recovery") ? 4 : 1); Thread.sleep(2200);
+                    phase.set(mode.equals("stale")?3:mode.equals("degraded")?2:mode.equals("slow_recovery")?4:0);
                 }
             };
             fault.observeBusiness(new ResilienceMonitor(baseline[0],config));
             try { fault.executeWithReport(new String[]{"-duration","2200"}); }
-            catch(IllegalStateException e) { if(!mode.equals("preflight_failure") && !mode.equals("execution_failure")) throw e; }
+            catch(IllegalStateException e) { if(!mode.equals("preflight_failure") && !mode.equals("invalid_parameter") && !mode.equals("execution_failure")) throw e; }
             check(Files.isRegularFile(config.reportDir.resolve("throughput.csv")),"no series");
             check(Files.isRegularFile(config.reportDir.resolve("resilience.json")),"no JSON");
             check(Files.isRegularFile(config.reportDir.resolve("report.txt")),"no report");
