@@ -112,7 +112,7 @@ Linux / macOS:
 
 ```bash
 chmod +x build_for_linux.sh
-./build_for_linux.sh DBChaos
+./build_for_linux.sh DBChaos-0.0.1
 ```
 
 Windows 本地环境:
@@ -171,6 +171,8 @@ java -jar DBChaos-0.0.1.jar --db opengauss sql plan_flip -threads 16 -duration 3
 
 ## 7. 与压测联动
 
+稳定后注入、自动预检、失败排查和测试结果分析的完整参数与示例见[使用指南](docs/testing/稳定门控预检与结果分析使用指南.md)。
+
 ### 测试前稳定监控与基准值
 
 业务负载单独启动后，可以用一条 DBChaos 命令完成“等待稳定 → 自动注入故障”，无需脚本在两个 Java 命令之间衔接：
@@ -185,7 +187,7 @@ java -jar DBChaos-0.0.1.jar --db opengauss txn deadlock_storm \
 该命令在同一 Java 进程内读取 BenchmarkSQL 的实时 `result.csv`，稳定后自动执行当前故障。
 故障开始后会继续采集业务吞吐量，撤销后观察恢复，并在 `reportTest()` 中报告 P0、t0、td、tr、Pd、Pr、下降/恢复比例及隔离影响。
 默认将 `throughput.csv`、`database-health.csv`、`resilience.json` 和 `report.txt` 保存到 `result.csv` 同级的 `dbchaos-reports/<本次运行>/`；
-恢复最长观察 180 秒，默认连续稳定且达到基线 95% 时确认恢复。可通过 `--recovery-timeout`、`--recovery-ratio`、`--isolation-max-drop` 和 `--report-dir` 调整。
+恢复最长观察 180 秒，默认成功 TPS 连续稳定且达到基线 95%，同时 P95 延迟和错误率恢复至阈值时确认恢复。可通过 `--recovery-timeout`、`--recovery-ratio`、`--isolation-max-drop` 和 `--report-dir` 调整。
 业务负载须持续运行到恢复观测结束；没有业务数据或证据不足时不生成肯定的韧性结论。详见[业务韧性指标与全程报告](docs/testing/韧性指标与报告.md)。
 稳定条件和等待时间沿用下述监控默认值；超时退出码为 `3`，不执行故障。
 监控出错退出码为 `1`，参数错误为 `2`。`--help` 直接显示帮助，不等待或注入。
